@@ -7,7 +7,7 @@ build:
 	@echo "Building..."
 	
 	
-	@go build -o main cmd/api/main.go
+	@go build -o udsf cmd/api/main.go
 
 # Run the application
 run:
@@ -42,7 +42,7 @@ itest:
 # Clean the binary
 clean:
 	@echo "Cleaning..."
-	@rm -f main
+	@rm -f udsf
 
 # Live Reload
 watch:

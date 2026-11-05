@@ -23,10 +23,10 @@ type service struct {
 }
 
 var (
-	address  = os.Getenv("BLUEPRINT_DB_ADDRESS")
-	port     = os.Getenv("BLUEPRINT_DB_PORT")
-	password = os.Getenv("BLUEPRINT_DB_PASSWORD")
-	database = os.Getenv("BLUEPRINT_DB_DATABASE")
+	address  = os.Getenv("UDSF_DB_ADDRESS")
+	port     = os.Getenv("UDSF_DB_PORT")
+	password = os.Getenv("UDSF_DB_PASSWORD")
+	database = os.Getenv("UDSF_DB_DATABASE")
 )
 
 func New() Service {
@@ -70,10 +70,10 @@ func (s *service) Health() map[string]string {
 func (s *service) checkRedisHealth(ctx context.Context, stats map[string]string) map[string]string {
 	// Ping the Redis server to check its availability.
 	pong, err := s.db.Ping(ctx).Result()
-	// Note: By extracting and simplifying like this, `log.Fatalf("db down: %v", err)`
-	// can be changed into a standard error instead of a fatal error.
 	if err != nil {
-		log.Fatalf("db down: %v", err)
+		stats["redis_status"] = "down"
+		stats["redis_message"] = fmt.Sprintf("db down: %v", err)
+		return stats
 	}
 
 	// Redis is up
@@ -188,7 +188,7 @@ func parseRedisInfo(info string) map[string]string {
 	lines := strings.Split(info, "\r\n")
 	for _, line := range lines {
 		if strings.Contains(line, ":") {
-			parts := strings.Split(line, ":")
+			parts := strings.SplitN(line, ":", 2)
 			key := strings.TrimSpace(parts[0])
 			value := strings.TrimSpace(parts[1])
 			result[key] = value
