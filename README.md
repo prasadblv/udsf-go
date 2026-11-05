@@ -1,6 +1,7 @@
 # Project udsf-go
 
-One Paragraph of project description goes here
+Unstructured Data Storage Function(UDSF).
+Refer https://5gctextbook.com/en/nf/udsf/ for more details.
 
 ## Getting Started
 
