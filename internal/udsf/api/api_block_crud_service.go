@@ -10,220 +10,133 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
+
+	"udsf-go/internal/database"
+	"udsf-go/internal/udsf/util"
 )
 
-// BlockCRUDAPIService is a service that implements the logic for the BlockCRUDAPIServicer
-// This service should implement the business logic for every endpoint for the BlockCRUDAPI API.
-// Include any external packages or services that will be required by this service.
+// BlockCRUDAPIService is a service that implements the logic for the BlockCRUDAPIServicer.
+// Blocks are stored in Redis as JSON under the key built by util.CreateBlockKey.
 type BlockCRUDAPIService struct {
+	db database.Service
 }
 
-// NewBlockCRUDAPIService creates a default api service
-func NewBlockCRUDAPIService() *BlockCRUDAPIService {
-	return &BlockCRUDAPIService{}
+// NewBlockCRUDAPIService creates an api service backed by the given database.
+func NewBlockCRUDAPIService(db database.Service) *BlockCRUDAPIService {
+	return &BlockCRUDAPIService{db: db}
 }
 
-// GetBlockList - Record&#39;s Blocks access
+func problem(status int, title string, err error) ImplResponse {
+	pd := ProblemDetails{Status: int32(status), Title: title}
+	if err != nil {
+		pd.Detail = err.Error()
+	}
+	return Response(status, pd)
+}
+
+// GetBlockList - Record's Blocks access
 func (s *BlockCRUDAPIService) GetBlockList(ctx context.Context, realmId string, storageId string, recordId string, supportedFeatures string) (ImplResponse, error) {
-	// TODO - update GetBlockList with the required logic for this service method.
-	// Add api_block_crud_service.go to the .openapi-generator-ignore to avoid overwriting this service implementation when updating open api generation.
+	pattern := util.CreateRecordBlockPattern(realmId, storageId, recordId)
+	util.LogDebug("GetBlockList pattern=%s", pattern)
 
-	// TODO: Uncomment the next line to return response Response(200, GetBlockList200Response{}) or use other options such as http.Ok ...
-	// return Response(200, GetBlockList200Response{}), nil
+	keys, err := s.db.Scan(ctx, pattern)
+	if err != nil {
+		util.LogError("scan blocks failed pattern=%s: %v", pattern, err)
+		return problem(http.StatusInternalServerError, "Failed to list blocks", err), nil
+	}
+	sort.Strings(keys)
 
-	// TODO: Uncomment the next line to return response Response(204, {}) or use other options such as http.Ok ...
-	// return Response(204, nil),nil
+	vals, err := s.db.GetMany(ctx, keys)
+	if err != nil {
+		util.LogError("read blocks failed pattern=%s: %v", pattern, err)
+		return problem(http.StatusInternalServerError, "Failed to read blocks", err), nil
+	}
 
-	// TODO: Uncomment the next line to return response Response(400, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(400, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(401, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(401, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(403, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(403, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(404, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(404, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(406, {}) or use other options such as http.Ok ...
-	// return Response(406, nil),nil
-
-	// TODO: Uncomment the next line to return response Response(412, ExtendedProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(412, ExtendedProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(429, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(429, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(500, ExtendedProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(500, ExtendedProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(502, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(502, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(503, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(503, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(0, {}) or use other options such as http.Ok ...
-	// return Response(0, nil),nil
-
-	return Response(http.StatusOK, nil), nil
+	blocks := make([]interface{}, 0, len(vals))
+	for _, v := range vals {
+		blocks = append(blocks, json.RawMessage(v))
+	}
+	util.LogInfo("listed %d blocks pattern=%s", len(blocks), pattern)
+	return Response(http.StatusOK, GetBlockList200Response{Blocks: blocks}), nil
 }
 
 // GetBlock - Retrieve a specific Block
 func (s *BlockCRUDAPIService) GetBlock(ctx context.Context, realmId string, storageId string, recordId string, blockId string, ifNoneMatch string, ifModifiedSince string, supportedFeatures string) (ImplResponse, error) {
-	// TODO - update GetBlock with the required logic for this service method.
-	// Add api_block_crud_service.go to the .openapi-generator-ignore to avoid overwriting this service implementation when updating open api generation.
+	key := util.CreateBlockKey(realmId, storageId, recordId, blockId)
+	util.LogDebug("GetBlock key=%s", key)
 
-	// TODO: Uncomment the next line to return response Response(200, interface{}{}) or use other options such as http.Ok ...
-	// return Response(200, interface{}{}), nil
+	val, err := s.db.Get(ctx, key)
+	if errors.Is(err, database.ErrKeyNotFound) {
+		util.LogInfo("block not found key=%s", key)
+		return problem(http.StatusNotFound, "Block not found", nil), nil
+	}
+	if err != nil {
+		util.LogError("get block failed key=%s: %v", key, err)
+		return problem(http.StatusInternalServerError, "Failed to read block", err), nil
+	}
 
-	// TODO: Uncomment the next line to return response Response(304, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(304, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(400, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(400, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(401, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(401, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(403, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(403, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(404, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(404, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(406, {}) or use other options such as http.Ok ...
-	// return Response(406, nil),nil
-
-	// TODO: Uncomment the next line to return response Response(412, ExtendedProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(412, ExtendedProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(429, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(429, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(500, ExtendedProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(500, ExtendedProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(502, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(502, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(503, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(503, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(0, {}) or use other options such as http.Ok ...
-	// return Response(0, nil),nil
-
-	return Response(http.StatusNotImplemented, nil), errors.New("GetBlock method not implemented")
+	util.LogDebug("block retrieved key=%s", key)
+	return Response(http.StatusOK, json.RawMessage(val)), nil
 }
 
 // CreateOrModifyBlock - Create or Update a specific Block in a Record.
 func (s *BlockCRUDAPIService) CreateOrModifyBlock(ctx context.Context, realmId string, storageId string, recordId string, blockId string, body *interface{}, getPrevious bool, ifNoneMatch string, ifMatch string, supportedFeatures string) (ImplResponse, error) {
-	// TODO - update CreateOrModifyBlock with the required logic for this service method.
-	// Add api_block_crud_service.go to the .openapi-generator-ignore to avoid overwriting this service implementation when updating open api generation.
+	key := util.CreateBlockKey(realmId, storageId, recordId, blockId)
+	util.LogDebug("CreateOrModifyBlock key=%s", key)
 
-	// TODO: Uncomment the next line to return response Response(200, interface{}{}) or use other options such as http.Ok ...
-	// return Response(200, interface{}{}), nil
+	if body == nil {
+		return problem(http.StatusBadRequest, "Missing block body", nil), nil
+	}
+	data, err := json.Marshal(*body)
+	if err != nil {
+		return problem(http.StatusBadRequest, "Invalid block body", err), nil
+	}
 
-	// TODO: Uncomment the next line to return response Response(201, {}) or use other options such as http.Ok ...
-	// return Response(201, nil),nil
+	exists, err := s.db.Exists(ctx, key)
+	if err != nil {
+		util.LogError("exists check failed key=%s: %v", key, err)
+		return problem(http.StatusInternalServerError, "Failed to check block", err), nil
+	}
 
-	// TODO: Uncomment the next line to return response Response(204, {}) or use other options such as http.Ok ...
-	// return Response(204, nil),nil
+	if !exists {
+		err = s.db.Create(ctx, key, data, 0)
+		if err == nil {
+			util.LogInfo("block created key=%s", key)
+			return Response(http.StatusCreated, *body), nil
+		}
+		if !errors.Is(err, database.ErrKeyExists) {
+			return problem(http.StatusInternalServerError, "Failed to create block", err), nil
+		}
+	}
 
-	// TODO: Uncomment the next line to return response Response(400, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(400, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(401, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(401, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(403, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(403, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(404, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(404, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(408, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(408, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(409, ExtendedProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(409, ExtendedProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(411, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(411, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(412, interface{}{}) or use other options such as http.Ok ...
-	// return Response(412, interface{}{}), nil
-
-	// TODO: Uncomment the next line to return response Response(413, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(413, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(415, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(415, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(429, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(429, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(500, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(500, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(502, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(502, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(503, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(503, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(0, {}) or use other options such as http.Ok ...
-	// return Response(0, nil),nil
-
-	return Response(http.StatusNotImplemented, nil), errors.New("CreateOrModifyBlock method not implemented")
+	if err := s.db.Update(ctx, key, data); err != nil {
+		if errors.Is(err, database.ErrKeyNotFound) {
+			return problem(http.StatusNotFound, "Block not found", nil), nil
+		}
+		return problem(http.StatusInternalServerError, "Failed to update block", err), nil
+	}
+	util.LogInfo("block updated key=%s", key)
+	return Response(http.StatusOK, *body), nil
 }
 
 // DeleteBlock - Delete a specific Block. Then update the Record
 func (s *BlockCRUDAPIService) DeleteBlock(ctx context.Context, realmId string, storageId string, recordId string, blockId string, getPrevious bool, ifMatch string, supportedFeatures string) (ImplResponse, error) {
-	// TODO - update DeleteBlock with the required logic for this service method.
-	// Add api_block_crud_service.go to the .openapi-generator-ignore to avoid overwriting this service implementation when updating open api generation.
+	key := util.CreateBlockKey(realmId, storageId, recordId, blockId)
+	util.LogDebug("DeleteBlock key=%s", key)
 
-	// TODO: Uncomment the next line to return response Response(200, interface{}{}) or use other options such as http.Ok ...
-	// return Response(200, interface{}{}), nil
-
-	// TODO: Uncomment the next line to return response Response(204, {}) or use other options such as http.Ok ...
-	// return Response(204, nil),nil
-
-	// TODO: Uncomment the next line to return response Response(400, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(400, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(401, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(401, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(403, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(403, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(404, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(404, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(408, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(408, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(412, interface{}{}) or use other options such as http.Ok ...
-	// return Response(412, interface{}{}), nil
-
-	// TODO: Uncomment the next line to return response Response(429, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(429, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(500, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(500, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(502, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(502, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(503, ProblemDetails{}) or use other options such as http.Ok ...
-	// return Response(503, ProblemDetails{}), nil
-
-	// TODO: Uncomment the next line to return response Response(0, {}) or use other options such as http.Ok ...
-	// return Response(0, nil),nil
-
-	return Response(http.StatusNotImplemented, nil), errors.New("DeleteBlock method not implemented")
+	err := s.db.Delete(ctx, key)
+	if errors.Is(err, database.ErrKeyNotFound) {
+		util.LogWarn("delete: block not found key=%s", key)
+		return problem(http.StatusNotFound, "Block not found", nil), nil
+	}
+	if err != nil {
+		util.LogError("delete block failed key=%s: %v", key, err)
+		return problem(http.StatusInternalServerError, "Failed to delete block", err), nil
+	}
+	util.LogInfo("block deleted key=%s", key)
+	return Response(http.StatusNoContent, nil), nil
 }

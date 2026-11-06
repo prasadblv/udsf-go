@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -14,8 +15,31 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// ErrKeyNotFound is returned by Get/Update/Delete when the key does not exist.
+var ErrKeyNotFound = errors.New("key not found")
+
+// ErrKeyExists is returned by Create when the key already exists.
+var ErrKeyExists = errors.New("key already exists")
+
 type Service interface {
 	Health() map[string]string
+
+	// Exists reports whether key exists in Redis.
+	Exists(ctx context.Context, key string) (bool, error)
+	// Create stores value under key only if the key does not already exist.
+	// A ttl of 0 means no expiration.
+	Create(ctx context.Context, key string, value any, ttl time.Duration) error
+	// Get returns the value stored under key, or ErrKeyNotFound.
+	Get(ctx context.Context, key string) (string, error)
+	// Update overwrites the value of an existing key (TTL is preserved),
+	// or returns ErrKeyNotFound.
+	Update(ctx context.Context, key string, value any) error
+	// Delete removes key, or returns ErrKeyNotFound.
+	Delete(ctx context.Context, key string) error
+	// Scan returns all keys matching the glob pattern, using incremental SCAN (never KEYS).
+	Scan(ctx context.Context, pattern string) ([]string, error)
+	// GetMany returns the values for keys, in order. Keys that no longer exist are skipped.
+	GetMany(ctx context.Context, keys []string) ([]string, error)
 }
 
 type service struct {
@@ -51,6 +75,94 @@ func New() Service {
 	s := &service{db: rdb}
 
 	return s
+}
+
+// Exists reports whether key exists in Redis.
+func (s *service) Exists(ctx context.Context, key string) (bool, error) {
+	n, err := s.db.Exists(ctx, key).Result()
+	if err != nil {
+		return false, fmt.Errorf("redis exists %q: %w", key, err)
+	}
+	return n > 0, nil
+}
+
+// Create stores value under key only if it does not already exist (SET NX).
+func (s *service) Create(ctx context.Context, key string, value any, ttl time.Duration) error {
+	ok, err := s.db.SetNX(ctx, key, value, ttl).Result()
+	if err != nil {
+		return fmt.Errorf("redis create %q: %w", key, err)
+	}
+	if !ok {
+		return ErrKeyExists
+	}
+	return nil
+}
+
+// Get returns the value stored under key.
+func (s *service) Get(ctx context.Context, key string) (string, error) {
+	val, err := s.db.Get(ctx, key).Result()
+	if errors.Is(err, redis.Nil) {
+		return "", ErrKeyNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("redis get %q: %w", key, err)
+	}
+	return val, nil
+}
+
+// Update overwrites an existing key (SET XX), keeping its TTL.
+func (s *service) Update(ctx context.Context, key string, value any) error {
+	err := s.db.SetArgs(ctx, key, value, redis.SetArgs{Mode: "XX", KeepTTL: true}).Err()
+	if errors.Is(err, redis.Nil) {
+		return ErrKeyNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("redis update %q: %w", key, err)
+	}
+	return nil
+}
+
+// Delete removes key.
+func (s *service) Delete(ctx context.Context, key string) error {
+	n, err := s.db.Del(ctx, key).Result()
+	if err != nil {
+		return fmt.Errorf("redis delete %q: %w", key, err)
+	}
+	if n == 0 {
+		return ErrKeyNotFound
+	}
+	return nil
+}
+
+// Scan returns all keys matching pattern.
+func (s *service) Scan(ctx context.Context, pattern string) ([]string, error) {
+	var keys []string
+	iter := s.db.Scan(ctx, 0, pattern, 100).Iterator()
+	for iter.Next(ctx) {
+		keys = append(keys, iter.Val())
+	}
+	if err := iter.Err(); err != nil {
+		return nil, fmt.Errorf("redis scan %q: %w", pattern, err)
+	}
+	return keys, nil
+}
+
+// GetMany returns the values for keys, skipping keys that do not exist.
+func (s *service) GetMany(ctx context.Context, keys []string) ([]string, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	vals, err := s.db.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis mget: %w", err)
+	}
+	out := make([]string, 0, len(vals))
+	for _, v := range vals {
+		if str, ok := v.(string); ok {
+			out = append(out, str)
+		}
+	}
+	return out, nil
 }
 
 // Health returns the health status and statistics of the Redis server.

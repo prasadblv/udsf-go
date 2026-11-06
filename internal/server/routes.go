@@ -33,7 +33,7 @@ func (s *Server) RegisterRoutes() http.Handler {
 	// UDSF (Nudsf_DataRepository) API: gorilla/mux router built from all generated controllers,
 	// mounted into gin under the /nudsf-dr prefix.
 	udsfRouter := udsfroute.NewRouter(
-		api.NewBlockCRUDAPIController(api.NewBlockCRUDAPIService()),
+		api.NewBlockCRUDAPIController(api.NewBlockCRUDAPIService(s.db)),
 		api.NewMetaSchemaCRUDAPIController(api.NewMetaSchemaCRUDAPIService()),
 		api.NewNotificationSubscriptionCRUDAPIController(api.NewNotificationSubscriptionCRUDAPIService()),
 		api.NewNotificationSubscriptionsCRUDAPIController(api.NewNotificationSubscriptionsCRUDAPIService()),
