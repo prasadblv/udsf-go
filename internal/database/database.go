@@ -38,8 +38,8 @@ type Service interface {
 	Delete(ctx context.Context, key string) error
 	// Scan returns all keys matching the glob pattern, using incremental SCAN (never KEYS).
 	Scan(ctx context.Context, pattern string) ([]string, error)
-	// GetMany returns the values for keys, in order. Keys that no longer exist are skipped.
-	GetMany(ctx context.Context, keys []string) ([]string, error)
+	// GetMany returns the values for keys as a key->value map. Keys that no longer exist are omitted.
+	GetMany(ctx context.Context, keys []string) (map[string]string, error)
 }
 
 type service struct {
@@ -147,19 +147,19 @@ func (s *service) Scan(ctx context.Context, pattern string) ([]string, error) {
 	return keys, nil
 }
 
-// GetMany returns the values for keys, skipping keys that do not exist.
-func (s *service) GetMany(ctx context.Context, keys []string) ([]string, error) {
+// GetMany returns the values for keys, omitting keys that do not exist.
+func (s *service) GetMany(ctx context.Context, keys []string) (map[string]string, error) {
+	out := make(map[string]string, len(keys))
 	if len(keys) == 0 {
-		return nil, nil
+		return out, nil
 	}
 	vals, err := s.db.MGet(ctx, keys...).Result()
 	if err != nil {
 		return nil, fmt.Errorf("redis mget: %w", err)
 	}
-	out := make([]string, 0, len(vals))
-	for _, v := range vals {
+	for i, v := range vals {
 		if str, ok := v.(string); ok {
-			out = append(out, str)
+			out[keys[i]] = str
 		}
 	}
 	return out, nil

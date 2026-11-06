@@ -72,7 +72,7 @@ type RecordCRUDAPIRouter interface {
 type BlockCRUDAPIServicer interface {
 	GetBlockList(context.Context, string, string, string, string) (ImplResponse, error)
 	GetBlock(context.Context, string, string, string, string, string, string, string) (ImplResponse, error)
-	CreateOrModifyBlock(context.Context, string, string, string, string, *interface{}, bool, string, string, string) (ImplResponse, error)
+	CreateOrModifyBlock(context.Context, string, string, string, string, *BlockContent, bool, string, string, string) (ImplResponse, error)
 	DeleteBlock(context.Context, string, string, string, string, bool, string, string) (ImplResponse, error)
 }
 

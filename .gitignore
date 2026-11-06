@@ -38,3 +38,6 @@ go.work.sum
 /main
 /udsf
 k6/*.prof
+
+# local TLS certificates
+certs/

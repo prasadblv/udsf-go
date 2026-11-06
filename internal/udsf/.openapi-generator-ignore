@@ -1,0 +1,12 @@
+# OpenAPI Generator Ignore
+# Paths are relative to the generator output directory (internal/udsf).
+# Generated files that were hand-edited and must not be overwritten on regeneration.
+
+# Block CRUD: raw/octet-stream bodies, multipart/parallel list, Redis-backed service
+api/api.go
+api/api_block_crud.go
+api/api_block_crud_service.go
+api/imports.go
+
+# EncodeJSONResponse dispatches BlockContent / BlockListMultipart bodies
+util/helpers.go

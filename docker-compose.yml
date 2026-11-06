@@ -2,5 +2,49 @@ services:
   redis_bp:
     image: redis:7.2.4
     restart: unless-stopped
+    # Keep Redis below the container limit so it errors on writes instead of being OOM-killed.
+    command: ["redis-server", "--maxmemory", "400mb", "--maxmemory-policy", "noeviction"]
+    networks:
+      - udsf_net
+    deploy:
+      resources:
+        limits:
+          cpus: "${REDIS_CPUS:-1.0}"
+          memory: "${REDIS_MEMORY:-512m}"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  udsf:
+    build: .
+    networks:
+      - udsf_net
+    image: udsf:latest
+    restart: unless-stopped
+    depends_on:
+      redis_bp:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "${UDSF_CPUS:-2.0}"
+          memory: "${UDSF_MEMORY:-1g}"
     ports:
-      - "${BLUEPRINT_DB_PORT}:6379"
+      - "${UDSF_PORT:-9443}:9443"
+    environment:
+      PORT: "9443"
+      UDSF_DB_ADDRESS: redis_bp
+      UDSF_DB_PORT: "6379"
+      UDSF_DB_PASSWORD: ""
+      UDSF_DB_DATABASE: "1"
+      UDSF_LOG_LEVEL: "${UDSF_LOG_LEVEL:-info}"
+    volumes:
+      # Generate with ./generate-cert.sh first
+      - ./certs:/certs:ro
+
+networks:
+  udsf_net:
+    name: udsf_net
+    driver: bridge

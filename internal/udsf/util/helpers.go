@@ -84,6 +84,17 @@ func AssertRecurseValueRequired[T any](value reflect.Value, callback func(T) err
 func EncodeJSONResponse(i interface{}, status *int, w http.ResponseWriter) error {
 	wHeader := w.Header()
 
+	code := http.StatusOK
+	if status != nil {
+		code = *status
+	}
+	switch v := i.(type) {
+	case *BlockContent:
+		return writeBlockContent(w, code, v)
+	case *BlockListMultipart:
+		return writeBlockListMultipart(w, code, v)
+	}
+
 	f, ok := i.(*os.File)
 	if ok {
 		data, err := io.ReadAll(f)

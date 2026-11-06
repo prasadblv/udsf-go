@@ -36,6 +36,7 @@ type (
 )
 
 type (
+	BlockContent  = util.BlockContent
 	ErrorHandler  = util.ErrorHandler
 	ImplResponse  = util.ImplResponse
 	ParsingError  = util.ParsingError

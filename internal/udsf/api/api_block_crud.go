@@ -11,13 +11,15 @@
 package api
 
 import (
-	"encoding/json"
-	"errors"
+	"io"
 	"net/http"
 	"strings"
 
 	"github.com/gorilla/mux"
 )
+
+// maxBlockSize caps the size of an uploaded block body.
+const maxBlockSize = 32 << 20
 
 // BlockCRUDAPIController binds http requests to an api service and writes the service results to the http response
 type BlockCRUDAPIController struct {
@@ -224,18 +226,13 @@ func (c *BlockCRUDAPIController) CreateOrModifyBlock(w http.ResponseWriter, r *h
 		c.errorHandler(w, r, &RequiredError{Field: "blockId"}, nil)
 		return
 	}
-	var bodyParam interface{}
-	d := json.NewDecoder(r.Body)
-	d.DisallowUnknownFields()
-	if err := d.Decode(&bodyParam); err != nil {
-		var requiredErr *RequiredError
-		if errors.As(err, &requiredErr) {
-			c.errorHandler(w, r, err, nil)
-			return
-		}
+	// Blocks can be of any type ("*/*"): keep the raw bytes and the media type.
+	rawBody, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBlockSize))
+	if err != nil {
 		c.errorHandler(w, r, &ParsingError{Err: err}, nil)
 		return
 	}
+	bodyParam := BlockContent{ContentType: r.Header.Get("Content-Type"), Data: rawBody}
 	var getPreviousParam bool
 	if query.Has("get-previous") {
 		param, err := parseBoolParameter(

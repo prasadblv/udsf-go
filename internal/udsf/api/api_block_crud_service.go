@@ -10,10 +10,10 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"sort"
+	"strings"
 
 	"udsf-go/internal/database"
 	"udsf-go/internal/udsf/util"
@@ -56,12 +56,23 @@ func (s *BlockCRUDAPIService) GetBlockList(ctx context.Context, realmId string, 
 		return problem(http.StatusInternalServerError, "Failed to read blocks", err), nil
 	}
 
-	blocks := make([]interface{}, 0, len(vals))
-	for _, v := range vals {
-		blocks = append(blocks, json.RawMessage(v))
+	// Block ids are the key suffix after the record prefix.
+	prefix := util.CreateBlockKey(realmId, storageId, recordId, "")
+	list := &util.BlockListMultipart{Parts: make([]util.BlockPart, 0, len(keys))}
+	for _, key := range keys {
+		stored, ok := vals[key]
+		if !ok {
+			continue // deleted between SCAN and MGET
+		}
+		content, err := util.UnmarshalBlockContent(stored)
+		if err != nil {
+			util.LogError("corrupt block key=%s: %v", key, err)
+			return problem(http.StatusInternalServerError, "Corrupt block", err), nil
+		}
+		list.Parts = append(list.Parts, util.BlockPart{ID: strings.TrimPrefix(key, prefix), Content: content})
 	}
-	util.LogInfo("listed %d blocks pattern=%s", len(blocks), pattern)
-	return Response(http.StatusOK, GetBlockList200Response{Blocks: blocks}), nil
+	util.LogInfo("listed %d blocks pattern=%s", len(list.Parts), pattern)
+	return Response(http.StatusOK, list), nil
 }
 
 // GetBlock - Retrieve a specific Block
@@ -79,48 +90,64 @@ func (s *BlockCRUDAPIService) GetBlock(ctx context.Context, realmId string, stor
 		return problem(http.StatusInternalServerError, "Failed to read block", err), nil
 	}
 
+	content, err := util.UnmarshalBlockContent(val)
+	if err != nil {
+		util.LogError("corrupt block key=%s: %v", key, err)
+		return problem(http.StatusInternalServerError, "Corrupt block", err), nil
+	}
 	util.LogDebug("block retrieved key=%s", key)
-	return Response(http.StatusOK, json.RawMessage(val)), nil
+	return Response(http.StatusOK, &content), nil
 }
 
 // CreateOrModifyBlock - Create or Update a specific Block in a Record.
-func (s *BlockCRUDAPIService) CreateOrModifyBlock(ctx context.Context, realmId string, storageId string, recordId string, blockId string, body *interface{}, getPrevious bool, ifNoneMatch string, ifMatch string, supportedFeatures string) (ImplResponse, error) {
+// The block's bytes and Content-Type are stored as-is. Creation returns 201; an update
+// returns 200 with the previous value when get-previous is set, otherwise 204.
+func (s *BlockCRUDAPIService) CreateOrModifyBlock(ctx context.Context, realmId string, storageId string, recordId string, blockId string, body *BlockContent, getPrevious bool, ifNoneMatch string, ifMatch string, supportedFeatures string) (ImplResponse, error) {
 	key := util.CreateBlockKey(realmId, storageId, recordId, blockId)
 	util.LogDebug("CreateOrModifyBlock key=%s", key)
 
 	if body == nil {
 		return problem(http.StatusBadRequest, "Missing block body", nil), nil
 	}
-	data, err := json.Marshal(*body)
-	if err != nil {
-		return problem(http.StatusBadRequest, "Invalid block body", err), nil
-	}
+	data := body.Marshal()
 
-	exists, err := s.db.Exists(ctx, key)
-	if err != nil {
-		util.LogError("exists check failed key=%s: %v", key, err)
-		return problem(http.StatusInternalServerError, "Failed to check block", err), nil
-	}
-
-	if !exists {
+	previous, err := s.db.Get(ctx, key)
+	switch {
+	case errors.Is(err, database.ErrKeyNotFound):
 		err = s.db.Create(ctx, key, data, 0)
 		if err == nil {
-			util.LogInfo("block created key=%s", key)
-			return Response(http.StatusCreated, *body), nil
+			util.LogInfo("block created key=%s type=%s bytes=%d", key, body.ContentType, len(body.Data))
+			return Response(http.StatusCreated, nil), nil
 		}
 		if !errors.Is(err, database.ErrKeyExists) {
+			util.LogError("create block failed key=%s: %v", key, err)
 			return problem(http.StatusInternalServerError, "Failed to create block", err), nil
 		}
+		// lost a race with another writer: fall through to update
+		previous, err = s.db.Get(ctx, key)
+		if err != nil {
+			return problem(http.StatusInternalServerError, "Failed to read block", err), nil
+		}
+	case err != nil:
+		util.LogError("read block failed key=%s: %v", key, err)
+		return problem(http.StatusInternalServerError, "Failed to read block", err), nil
 	}
 
 	if err := s.db.Update(ctx, key, data); err != nil {
 		if errors.Is(err, database.ErrKeyNotFound) {
 			return problem(http.StatusNotFound, "Block not found", nil), nil
 		}
+		util.LogError("update block failed key=%s: %v", key, err)
 		return problem(http.StatusInternalServerError, "Failed to update block", err), nil
 	}
-	util.LogInfo("block updated key=%s", key)
-	return Response(http.StatusOK, *body), nil
+	util.LogInfo("block updated key=%s type=%s bytes=%d", key, body.ContentType, len(body.Data))
+
+	if getPrevious {
+		if prev, err := util.UnmarshalBlockContent(previous); err == nil {
+			return Response(http.StatusOK, &prev), nil
+		}
+	}
+	return Response(http.StatusNoContent, nil), nil
 }
 
 // DeleteBlock - Delete a specific Block. Then update the Record
