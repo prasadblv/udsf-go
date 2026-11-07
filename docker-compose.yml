@@ -38,7 +38,6 @@ services:
       UDSF_SERVER_CERT_PEM_LOCATION: /certs/server.pem
       UDSF_SERVER_CERT_KEY_LOCATION: /certs/server.key
       UDSF_SERVER_MODE: release
-      UDSF_CONFIG: /config/udsf_config.yaml
       UDSF_REDIS_HOST: redis_bp
       UDSF_REDIS_PORT: "6379"
       UDSF_REDIS_PASSWORD: ""

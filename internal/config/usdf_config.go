@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-// DefaultConfigPath is used when UDSF_CONFIG is not set.
+// DefaultConfigPath is used when no config path is given (e.g. no -config flag).
 const DefaultConfigPath = "config/udsf_config.yaml"
 
 // ClientTLS configures an optional outbound TLS connection (Redis, OpenTelemetry). Disabled by default.
@@ -148,10 +148,14 @@ func (c *UdsfConfig) RedisAddr() string {
 	return fmt.Sprintf("%s:%d", c.Redis.Host, c.Redis.Port)
 }
 
-// Load reads the YAML config (path from UDSF_CONFIG, default config/udsf_config.yaml).
+// Load reads the YAML config from DefaultConfigPath (config/udsf_config.yaml).
 // Every key can be overridden by an env var named UDSF_<SECTION>_<KEY>,
 // e.g. UDSF_REDIS_HOST, UDSF_SERVER_HTTPS_PORT. A missing file falls back to defaults.
-func Load() (*UdsfConfig, error) {
+func Load() (*UdsfConfig, error) { return LoadFrom("") }
+
+// LoadFrom is like Load but reads the given config file when path is non-empty
+// (it must exist); an empty path falls back to DefaultConfigPath.
+func LoadFrom(path string) (*UdsfConfig, error) {
 	v := viper.New()
 
 	v.SetDefault("server.https_port", ":9443")
@@ -202,7 +206,6 @@ func Load() (*UdsfConfig, error) {
 	v.AutomaticEnv()
 	v.AllowEmptyEnv(true) // lets UDSF_LOG_FILE="" disable file logging
 
-	path := os.Getenv("UDSF_CONFIG")
 	explicit := path != ""
 	if !explicit {
 		path = DefaultConfigPath

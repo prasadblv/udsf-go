@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -40,7 +41,12 @@ func gracefulShutdown(apiServer *http.Server, done chan bool) {
 
 func main() {
 
-	cfg, err := config.Load()
+	configPath := flag.String("config", "",
+		"path to the YAML config file (default "+config.DefaultConfigPath+")")
+	flag.StringVar(configPath, "c", "", "shorthand for -config")
+	flag.Parse()
+
+	cfg, err := config.LoadFrom(*configPath)
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
