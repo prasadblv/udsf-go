@@ -1,6 +1,8 @@
 package database
 
 import (
+	"udsf-go/internal/config"
+
 	"context"
 	"log"
 	"testing"
@@ -8,6 +10,8 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/redis"
 )
+
+var testCfg = &config.UdsfConfig{}
 
 func mustStartRedisContainer() (func(context.Context, ...testcontainers.TerminateOption) error, error) {
 	dbContainer, err := redis.Run(
@@ -30,9 +34,9 @@ func mustStartRedisContainer() (func(context.Context, ...testcontainers.Terminat
 		return dbContainer.Terminate, err
 	}
 
-	address = dbHost
-	port = dbPort.Port()
-	database = "0"
+	testCfg.Redis.Host = dbHost
+	testCfg.Redis.Port = int(dbPort.Num())
+	testCfg.Redis.Database = 0
 
 	return dbContainer.Terminate, err
 }
@@ -51,14 +55,14 @@ func TestMain(m *testing.M) {
 }
 
 func TestNew(t *testing.T) {
-	srv := New()
+	srv := New(testCfg)
 	if srv == nil {
-		t.Fatal("New() returned nil")
+		t.Fatal("New(testCfg) returned nil")
 	}
 }
 
 func TestHealth(t *testing.T) {
-	srv := New()
+	srv := New(testCfg)
 
 	stats := srv.Health()
 

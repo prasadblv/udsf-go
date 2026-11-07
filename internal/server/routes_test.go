@@ -1,6 +1,8 @@
 package server
 
 import (
+	"udsf-go/internal/config"
+
 	"bytes"
 	"context"
 	"io"
@@ -87,15 +89,15 @@ func serve(h http.Handler, method, url, contentType string, body []byte) *httpte
 }
 
 func TestHelloWorldHandler(t *testing.T) {
-	s := &Server{}
+	s := &Server{cfg: testCfg}
 	r := gin.New()
-	r.GET("/", s.HelloWorldHandler)
+	r.GET("/", s.livenessHandler)
 
 	rr := serve(r, "GET", "/", "", nil)
 	if rr.Code != http.StatusOK {
 		t.Errorf("Handler returned wrong status code: got %v want %v", rr.Code, http.StatusOK)
 	}
-	expected := "{\"message\":\"Hello World\"}"
+	expected := "\"OK\""
 	if rr.Body.String() != expected {
 		t.Errorf("Handler returned unexpected body: got %v want %v", rr.Body.String(), expected)
 	}
@@ -104,14 +106,14 @@ func TestHelloWorldHandler(t *testing.T) {
 func TestHealthHandler(t *testing.T) {
 	t.Run("no database", func(t *testing.T) {
 		r := gin.New()
-		r.GET("/dbhealthz", (&Server{}).healthHandler)
+		r.GET("/dbhealthz", (&Server{cfg: testCfg}).dbhealthHandler)
 		if rr := serve(r, "GET", "/dbhealthz", "", nil); rr.Code != http.StatusServiceUnavailable {
 			t.Errorf("got %d want %d", rr.Code, http.StatusServiceUnavailable)
 		}
 	})
 	t.Run("database up", func(t *testing.T) {
 		r := gin.New()
-		r.GET("/dbhealthz", (&Server{db: newFakeDB()}).healthHandler)
+		r.GET("/dbhealthz", (&Server{cfg: testCfg, db: newFakeDB()}).dbhealthHandler)
 		rr := serve(r, "GET", "/dbhealthz", "", nil)
 		if rr.Code != http.StatusOK || rr.Body.String() != `{"redis_status":"up"}` {
 			t.Errorf("got %d %s", rr.Code, rr.Body)
@@ -123,7 +125,7 @@ func TestHealthHandler(t *testing.T) {
 // (RegisterRoutes), including binary content and the multipart/parallel list.
 func TestBlockRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	h := (&Server{db: newFakeDB()}).RegisterRoutes()
+	h := (&Server{cfg: testCfg, db: newFakeDB()}).RegisterRoutes()
 	base := "/nudsf-dr/v1/Realm01/Storage01/records/Rec1/blocks"
 
 	bin := make([]byte, 256)
@@ -183,5 +185,34 @@ func TestBlockRoutes(t *testing.T) {
 	}
 	if rr := serve(h, "DELETE", base+"/Block01", "", nil); rr.Code != http.StatusNotFound {
 		t.Fatalf("delete missing: got %d want 404", rr.Code)
+	}
+}
+
+var testCfg = func() *config.UdsfConfig {
+	c := &config.UdsfConfig{}
+	c.App.Name = "UDSF"
+	return c
+}()
+
+func TestRejectsWith503WhenShuttingDown(t *testing.T) {
+	s := &Server{}
+	h := s.RegisterRoutes()
+	get := func(path string) int {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		return w.Code
+	}
+	if got := get("/readyz"); got != http.StatusOK {
+		t.Fatalf("before shutdown: got %d", got)
+	}
+	s.shuttingDown.Store(true)
+	if got := get("/readyz"); got != http.StatusServiceUnavailable {
+		t.Errorf("readyz during shutdown: got %d, want 503", got)
+	}
+	if got := get("/nudsf-dr/anything"); got != http.StatusServiceUnavailable {
+		t.Errorf("api during shutdown: got %d, want 503", got)
+	}
+	if got := get("/healthz"); got != http.StatusOK {
+		t.Errorf("healthz during shutdown: got %d, want 200", got)
 	}
 }

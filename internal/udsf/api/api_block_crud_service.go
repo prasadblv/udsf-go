@@ -123,7 +123,6 @@ func (s *BlockCRUDAPIService) CreateOrModifyBlock(ctx context.Context, realmId s
 			util.LogError("create block failed key=%s: %v", key, err)
 			return problem(http.StatusInternalServerError, "Failed to create block", err), nil
 		}
-		// lost a race with another writer: fall through to update
 		previous, err = s.db.Get(ctx, key)
 		if err != nil {
 			return problem(http.StatusInternalServerError, "Failed to read block", err), nil

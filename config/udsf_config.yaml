@@ -1,0 +1,59 @@
+server:
+  https_port: ":9443"
+  mode: "debug" # debug, release, or test
+  read_timeout: 10
+  write_timeout: 30
+  idle_timeout: 120
+  max_header_bytes: 
+  cert_pem_location: certs/server.pem
+  cert_key_location: certs/server.key
+
+app:
+  name: "udsf-go"
+
+redis:
+  host: 127.0.0.1
+  port: 6379
+  password: "" 
+  database: 1
+  dial_timeout: 10
+  read_timeout: 30
+  write_timeout: 30
+  pool_size: 10
+  min_idle_conns: 10
+  max_idle_conns: 50
+  conn_max_idletime: 5
+  conn_max_lifetime: 30
+  enable_opentelemetry: false
+  tls:
+    enabled: false                  # keep false unless Redis is configured for TLS
+    ca_cert_location: ""            # PEM CA bundle to verify Redis; empty = system roots
+    client_cert_location: ""        # mTLS client cert (set together with client_key_location)
+    client_key_location: ""
+    server_name: ""                 # cert verification name; empty = redis.host
+    insecure_skip_verify: false     # dev only: skip server cert verification
+
+open_telemetry:
+  enabled: false
+  service_name: "udsf"
+  service_version: "0.0.1"
+  jaeger_endpoint: "http://localhost:14268/api/traces"
+  otlp_endpoint: "http://localhost:4317"
+  otlp_insecure: true
+  otlp_headers: ""
+  otlp_compression: "gzip"
+  otlp_timeout: 10
+  tls:
+    enabled: false                  # keep false unless the collector uses TLS (also set otlp_insecure: false)
+    ca_cert_location: ""            # PEM CA bundle to verify the collector; empty = system roots
+    client_cert_location: ""        # mTLS client cert (set together with client_key_location)
+    client_key_location: ""
+    server_name: ""                 # cert verification name; empty = host of otlp_endpoint
+    insecure_skip_verify: false     # dev only: skip server cert verification
+
+log:
+  level: "info" #info, debug, warn, error
+  log_file: "logs/udsf.log" # also tee gin logs here; "" or "stdout" = stdout only (containers)
+
+
+

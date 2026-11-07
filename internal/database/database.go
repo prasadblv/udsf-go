@@ -1,17 +1,17 @@
 package database
 
 import (
+	"log"
+	"udsf-go/internal/config"
+
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"math"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	_ "github.com/joho/godotenv/autoload"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -46,30 +46,27 @@ type service struct {
 	db *redis.Client
 }
 
-var (
-	address  = os.Getenv("UDSF_DB_ADDRESS")
-	port     = os.Getenv("UDSF_DB_PORT")
-	password = os.Getenv("UDSF_DB_PASSWORD")
-	database = os.Getenv("UDSF_DB_DATABASE")
-)
-
-func New() Service {
-	num, err := strconv.Atoi(database)
+// New creates a Redis-backed Service from the application config.
+func New(cfg *config.UdsfConfig) Service {
+	tlsCfg, err := cfg.RedisTLSConfig()
 	if err != nil {
-		log.Fatalf("database incorrect %v", err)
+		log.Fatalf("redis tls: %v", err)
 	}
-
-	fullAddress := fmt.Sprintf("%s:%s", address, port)
-
 	rdb := redis.NewClient(&redis.Options{
-		Addr:     fullAddress,
-		Password: password,
-		DB:       num,
-		// Note: It's important to add this for a secure connection. Most cloud services that offer Redis should already have this configured in their services.
-		// For manual setup, please refer to the Redis documentation: https://redis.io/docs/latest/operate/oss_and_stack/management/security/encryption/
-		// TLSConfig: &tls.Config{
-		// 	MinVersion:   tls.VersionTLS12,
-		// },
+		Addr:     cfg.RedisAddr(),
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.Database,
+
+		DialTimeout:     time.Duration(cfg.Redis.DialTimeout) * time.Second,
+		ReadTimeout:     time.Duration(cfg.Redis.ReadTimeout) * time.Second,
+		WriteTimeout:    time.Duration(cfg.Redis.WriteTimeout) * time.Second,
+		PoolSize:        cfg.Redis.PoolSize,
+		MinIdleConns:    cfg.Redis.MinIdleConns,
+		MaxIdleConns:    cfg.Redis.MaxIdleConns,
+		ConnMaxIdleTime: time.Duration(cfg.Redis.ConnMaxIdleTime) * time.Minute,
+		ConnMaxLifetime: time.Duration(cfg.Redis.ConnMaxLifetime) * time.Minute,
+		// nil when redis.tls.enabled is false (default).
+		TLSConfig: tlsCfg,
 	})
 
 	s := &service{db: rdb}

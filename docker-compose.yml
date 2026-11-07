@@ -9,8 +9,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "${REDIS_CPUS:-1.0}"
-          memory: "${REDIS_MEMORY:-512m}"
+          cpus: "${REDIS_CPUS:-2.0}"
+          memory: "${REDIS_MEMORY:-1024m}"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -29,20 +29,25 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "${UDSF_CPUS:-2.0}"
+          cpus: "${UDSF_CPUS:-1.0}"
           memory: "${UDSF_MEMORY:-1g}"
     ports:
       - "${UDSF_PORT:-9443}:9443"
     environment:
-      PORT: "9443"
-      UDSF_DB_ADDRESS: redis_bp
-      UDSF_DB_PORT: "6379"
-      UDSF_DB_PASSWORD: ""
-      UDSF_DB_DATABASE: "1"
-      UDSF_LOG_LEVEL: "${UDSF_LOG_LEVEL:-info}"
+      UDSF_SERVER_HTTPS_PORT: ":9443"
+      UDSF_SERVER_CERT_PEM_LOCATION: /certs/server.pem
+      UDSF_SERVER_CERT_KEY_LOCATION: /certs/server.key
+      UDSF_SERVER_MODE: release
+      UDSF_CONFIG: /config/udsf_config.yaml
+      UDSF_REDIS_HOST: redis_bp
+      UDSF_REDIS_PORT: "6379"
+      UDSF_REDIS_PASSWORD: ""
+      UDSF_REDIS_DATABASE: "1"
+      UDSF_LOG_FILE: "${UDSF_LOG_FILE:-}" # empty = stdout only (view with docker logs)
     volumes:
       # Generate with ./generate-cert.sh first
       - ./certs:/certs:ro
+      - ./config:/config:ro
 
 networks:
   udsf_net:

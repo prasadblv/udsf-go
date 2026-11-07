@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"udsf-go/internal/config"
 	"udsf-go/internal/server"
 )
 
@@ -39,7 +40,14 @@ func gracefulShutdown(apiServer *http.Server, done chan bool) {
 
 func main() {
 
-	server := server.NewServer()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("load config: %v", err)
+	}
+	server, err := server.NewServer(cfg)
+	if err != nil {
+		log.Fatalf("init server: %v", err)
+	}
 
 	// Create a done channel to signal when the shutdown is complete
 	done := make(chan bool, 1)
@@ -47,7 +55,7 @@ func main() {
 	// Run graceful shutdown in a separate goroutine
 	go gracefulShutdown(server, done)
 
-	err := server.ListenAndServe()
+	err = server.ListenAndServeTLS("", "")
 	if err != nil && err != http.ErrServerClosed {
 		panic(fmt.Sprintf("http server error: %s", err))
 	}
