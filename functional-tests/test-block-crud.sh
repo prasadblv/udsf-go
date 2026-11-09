@@ -10,12 +10,7 @@
 
 set -u
 
-export UDSF_SERVER_HTTPS_PORT=:9443
 
-export UDSF_REDIS_HOST=127.0.0.1
-export UDSF_REDIS_PORT=6379
-export UDSF_REDIS_PASSWORD=
-export UDSF_REDIS_DATABASE=1
 
 BASE_URL="${1:-${BASE_URL:-https://127.0.0.1:9443}}/nudsf-dr/v1"
 REALM="Realm01"       # example values from openapi.yaml

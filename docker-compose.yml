@@ -2,7 +2,6 @@ services:
   redis_bp:
     image: redis:7.2.4
     restart: unless-stopped
-    # Keep Redis below the container limit so it errors on writes instead of being OOM-killed.
     command: ["redis-server", "--maxmemory", "400mb", "--maxmemory-policy", "noeviction"]
     networks:
       - udsf_net
@@ -17,15 +16,67 @@ services:
       timeout: 3s
       retries: 10
 
+  victoria-metrics:
+    image: victoriametrics/victoria-metrics:v1.102.1
+    restart: unless-stopped
+    command:
+      - "-storageDataPath=/victoria-metrics-data"
+      - "-retentionPeriod=${VM_RETENTION:-1}"
+      - "-httpListenAddr=:8428"
+      - "-opentelemetry.usePrometheusNaming=true"
+    ports:
+      - "${VM_PORT:-8428}:8428" # UI (/vmui) and query API
+    volumes:
+      - vm_data:/victoria-metrics-data
+    networks:
+      - udsf_net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8428/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  victoria-traces:
+    image: victoriametrics/victoria-traces:v0.13.0
+    restart: unless-stopped
+    command:
+      - "-storageDataPath=/victoria-traces-data"
+      - "-retentionPeriod=${VT_RETENTION:-7d}"
+      - "-httpListenAddr=:10428"
+    ports:
+      - "${VT_PORT:-10428}:10428" # UI (/select/vmui) and Jaeger query API (/select/jaeger)
+    volumes:
+      - vt_data:/victoria-traces-data
+    networks:
+      - udsf_net
+    # No healthcheck: the image has no wget/curl to probe with.
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.111.0
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    depends_on:
+      victoria-metrics:
+        condition: service_healthy
+      victoria-traces:
+        condition: service_started
+    networks:
+      - udsf_net
+
   udsf:
     build: .
     networks:
       - udsf_net
     image: udsf:latest
+    command: ["-config", "/config/udsf_config.docker.yaml"]
     restart: unless-stopped
     depends_on:
       redis_bp:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
     deploy:
       resources:
         limits:
@@ -33,20 +84,14 @@ services:
           memory: "${UDSF_MEMORY:-1g}"
     ports:
       - "${UDSF_PORT:-9443}:9443"
-    environment:
-      UDSF_SERVER_HTTPS_PORT: ":9443"
-      UDSF_SERVER_CERT_PEM_LOCATION: /certs/server.pem
-      UDSF_SERVER_CERT_KEY_LOCATION: /certs/server.key
-      UDSF_SERVER_MODE: release
-      UDSF_REDIS_HOST: redis_bp
-      UDSF_REDIS_PORT: "6379"
-      UDSF_REDIS_PASSWORD: ""
-      UDSF_REDIS_DATABASE: "1"
-      UDSF_LOG_FILE: "${UDSF_LOG_FILE:-}" # empty = stdout only (view with docker logs)
     volumes:
       # Generate with ./generate-cert.sh first
       - ./certs:/certs:ro
       - ./config:/config:ro
+
+volumes:
+  vm_data:
+  vt_data:
 
 networks:
   udsf_net:

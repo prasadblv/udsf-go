@@ -38,6 +38,7 @@ type UdsfConfig struct {
 		ReadTimeout     int    `mapstructure:"read_timeout"`     // seconds
 		WriteTimeout    int    `mapstructure:"write_timeout"`    // seconds
 		IdleTimeout     int    `mapstructure:"idle_timeout"`     // seconds
+		ShutdownTimeout int    `mapstructure:"shutdown_timeout"` // seconds to drain in-flight requests on SIGINT/SIGTERM
 		MaxHeaderBytes  int    `mapstructure:"max_header_bytes"` // default 1 MiB
 		CertPemLocation string `mapstructure:"cert_pem_location"`
 		CertKeyLocation string `mapstructure:"cert_key_location"`
@@ -67,11 +68,19 @@ type UdsfConfig struct {
 		ServiceVersion  string    `mapstructure:"service_version"`
 		JaegerEndpoint  string    `mapstructure:"jaeger_endpoint"`
 		OTLPEndpoint    string    `mapstructure:"otlp_endpoint"`
-		OTLPInsecure    bool      `mapstructure:"otlp_insecure"`
 		OTLPHeaders     string    `mapstructure:"otlp_headers"`
 		OTLPCompression string    `mapstructure:"otlp_compression"`
 		OTLPTimeout     int       `mapstructure:"otlp_timeout"` // seconds
 		TLS             ClientTLS `mapstructure:"tls"`          // used for OTLP/Jaeger exporters
+		// Attributes are extra resource attributes attached to every span.
+		// Note: viper lower-cases map keys.
+		Attributes map[string]string `mapstructure:"attributes"`
+		Sampler    struct {
+			// always_on, always_off, traceidratio, parentbased_always_on,
+			// parentbased_always_off, parentbased_traceidratio
+			Type  string  `mapstructure:"type"`
+			Ratio float64 `mapstructure:"ratio"` // 0.0-1.0, for the *traceidratio types
+		} `mapstructure:"sampler"`
 	} `mapstructure:"open_telemetry"`
 	Log struct {
 		Level string `mapstructure:"level"` // debug, info, warn, error
@@ -149,8 +158,8 @@ func (c *UdsfConfig) RedisAddr() string {
 }
 
 // Load reads the YAML config from DefaultConfigPath (config/udsf_config.yaml).
-// Every key can be overridden by an env var named UDSF_<SECTION>_<KEY>,
-// e.g. UDSF_REDIS_HOST, UDSF_SERVER_HTTPS_PORT. A missing file falls back to defaults.
+// Configuration comes only from the YAML file (and built-in defaults); environment
+// variables are not read. A missing default file falls back to defaults.
 func Load() (*UdsfConfig, error) { return LoadFrom("") }
 
 // LoadFrom is like Load but reads the given config file when path is non-empty
@@ -163,6 +172,7 @@ func LoadFrom(path string) (*UdsfConfig, error) {
 	v.SetDefault("server.read_timeout", 10)
 	v.SetDefault("server.write_timeout", 30)
 	v.SetDefault("server.idle_timeout", 60)
+	v.SetDefault("server.shutdown_timeout", 5)
 	v.SetDefault("server.max_header_bytes", 1<<20) // 1 MiB
 	v.SetDefault("server.cert_pem_location", "certs/server.pem")
 	v.SetDefault("server.cert_key_location", "certs/server.key")
@@ -195,16 +205,12 @@ func LoadFrom(path string) (*UdsfConfig, error) {
 	v.SetDefault("open_telemetry.enabled", false)
 	v.SetDefault("open_telemetry.service_name", "udsf")
 	v.SetDefault("open_telemetry.service_version", "0.0.1")
-	v.SetDefault("open_telemetry.otlp_insecure", true)
 	v.SetDefault("open_telemetry.otlp_compression", "gzip")
 	v.SetDefault("open_telemetry.otlp_timeout", 10)
+	v.SetDefault("open_telemetry.sampler.type", "always_on")
+	v.SetDefault("open_telemetry.sampler.ratio", 1.0)
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.log_file", "logs/udsf.log")
-
-	v.SetEnvPrefix("UDSF")
-	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	v.AutomaticEnv()
-	v.AllowEmptyEnv(true) // lets UDSF_LOG_FILE="" disable file logging
 
 	explicit := path != ""
 	if !explicit {
@@ -222,13 +228,6 @@ func LoadFrom(path string) (*UdsfConfig, error) {
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
-	// log.level is read from the config file only (no UDSF_LOG_LEVEL override).
-	cfg.Log.Level = "info"
-	fv := viper.New()
-	fv.SetConfigFile(path)
-	if fv.ReadInConfig() == nil && fv.IsSet("log.level") {
-		cfg.Log.Level = fv.GetString("log.level")
-	}
 	switch cfg.Server.Mode {
 	case "debug", "release", "test":
 	default:
@@ -239,9 +238,6 @@ func LoadFrom(path string) (*UdsfConfig, error) {
 	}
 	if _, err := cfg.OTelTLSConfig(); err != nil {
 		return nil, err
-	}
-	if cfg.OpenTelemetry.TLS.Enabled && cfg.OpenTelemetry.OTLPInsecure {
-		return nil, errors.New("open_telemetry: tls.enabled conflicts with otlp_insecure=true; set otlp_insecure to false")
 	}
 	return &cfg, nil
 }

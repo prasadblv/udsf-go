@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -23,6 +24,8 @@ var ErrKeyExists = errors.New("key already exists")
 
 type Service interface {
 	Health() map[string]string
+	// Ping reports whether Redis is reachable (cheap; no INFO/stats).
+	Ping(ctx context.Context) error
 
 	// Exists reports whether key exists in Redis.
 	Exists(ctx context.Context, key string) (bool, error)
@@ -68,6 +71,31 @@ func New(cfg *config.UdsfConfig) Service {
 		// nil when redis.tls.enabled is false (default).
 		TLSConfig: tlsCfg,
 	})
+
+	// redis.enable_opentelemetry adds client spans and pool/command metrics. It only has an
+	// effect when open_telemetry.enabled is also true (otherwise the global providers are no-ops).
+	if cfg.Redis.EnableOpenTelemetry {
+		isHousekeeping := func(cmd redis.Cmder) bool {
+			switch cmd.Name() {
+			case "ping", "hello", "client", "select":
+				return true
+			}
+			return false
+		}
+		err := redisotel.InstrumentTracing(rdb,
+			redisotel.WithDialFilter(true),
+			redisotel.WithCommandFilter(isHousekeeping),
+			redisotel.WithCommandsFilter(func(cmds []redis.Cmder) bool {
+				return len(cmds) > 0 && isHousekeeping(cmds[0])
+			}),
+		)
+		if err != nil {
+			log.Printf("redis otel tracing: %v", err)
+		}
+		if err := redisotel.InstrumentMetrics(rdb); err != nil {
+			log.Printf("redis otel metrics: %v", err)
+		}
+	}
 
 	s := &service{db: rdb}
 
@@ -160,6 +188,11 @@ func (s *service) GetMany(ctx context.Context, keys []string) (map[string]string
 		}
 	}
 	return out, nil
+}
+
+// Ping checks that Redis answers PING.
+func (s *service) Ping(ctx context.Context) error {
+	return s.db.Ping(ctx).Err()
 }
 
 // Health returns the health status and statistics of the Redis server.

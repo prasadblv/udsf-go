@@ -20,7 +20,8 @@ import (
 // fakeDB is an in-memory database.Service.
 type fakeDB struct{ m map[string]string }
 
-func (f *fakeDB) Health() map[string]string { return nil }
+func (f *fakeDB) Health() map[string]string      { return nil }
+func (f *fakeDB) Ping(ctx context.Context) error { return nil }
 func (f *fakeDB) Exists(_ context.Context, k string) (bool, error) {
 	_, ok := f.m[k]
 	return ok, nil

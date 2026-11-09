@@ -24,6 +24,7 @@ type Server struct {
 	db  database.Service
 	// shuttingDown is set once graceful shutdown starts; new requests get 503.
 	shuttingDown atomic.Bool
+	redisGate    redisGate
 }
 
 // NewServer builds the HTTPS server from cfg, loading the certificate and key

@@ -3,18 +3,28 @@ package server
 import (
 	"net/http"
 
+	"udsf-go/internal/observability"
 	"udsf-go/internal/udsf/api"
 	udsfroute "udsf-go/internal/udsf/route"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/pprof"
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/mux"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func (s *Server) RegisterRoutes() http.Handler {
 	r := gin.New()
+	if s.cfg != nil && s.cfg.OpenTelemetry.Enabled {
+		r.Use(otelgin.Middleware(observability.ServiceName(s.cfg)))
+		r.Use(observability.RouteLatency())
+	}
 	r.Use(gin.Recovery())
 	r.Use(s.rejectReqWhenShuttingDown())
+	r.Use(s.rejectReqWhenRedisDown())
 
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:5173"},
@@ -48,7 +58,22 @@ func (s *Server) RegisterRoutes() http.Handler {
 		api.NewTimerUpdateAPIController(api.NewTimerUpdateAPIService()),
 		api.NewTimersDeleteAPIController(api.NewTimersDeleteAPIService()),
 	)
-	r.Any("/nudsf-dr/*path", gin.WrapH(udsfRouter))
+	// The generated gorilla/mux router sits behind a gin wildcard, so gin's FullPath is just
+	// "/nudsf-dr/*path". Resolve the real route template for the http.route metric label.
+	r.Any("/nudsf-dr/*path", func(c *gin.Context) {
+		var m mux.RouteMatch
+		if udsfRouter.Match(c.Request, &m) && m.Route != nil {
+			if tmpl, err := m.Route.GetPathTemplate(); err == nil {
+				c.Set(observability.RouteKey, tmpl)
+				// otelgin named the span after gin's wildcard; rename it to the real route.
+				if span := trace.SpanFromContext(c.Request.Context()); span.IsRecording() {
+					span.SetName(c.Request.Method + " " + tmpl)
+					span.SetAttributes(attribute.String("http.route", tmpl))
+				}
+			}
+		}
+		udsfRouter.ServeHTTP(c.Writer, c.Request)
+	})
 
 	return r
 }

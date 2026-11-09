@@ -66,14 +66,18 @@ func TestLoadOTelTLSDisabledByDefault(t *testing.T) {
 	}
 }
 
-func TestLogLevelIgnoresEnv(t *testing.T) {
+func TestEnvIsIgnored(t *testing.T) {
 	t.Chdir("../..")
 	t.Setenv("UDSF_LOG_LEVEL", "error")
+	t.Setenv("UDSF_REDIS_HOST", "env-host")
 	c, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if c.Log.Level != "info" { // value in config/udsf_config.yaml
 		t.Errorf("log level = %q; want config file value %q", c.Log.Level, "info")
+	}
+	if c.Redis.Host == "env-host" {
+		t.Error("environment variables must not override the config file")
 	}
 }

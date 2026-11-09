@@ -1,0 +1,35 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: {}
+
+exporters:
+  # VictoriaMetrics natively ingests OTLP metrics over HTTP at /opentelemetry/v1/metrics
+  otlphttp/victoria:
+    metrics_endpoint: http://victoria-metrics:8428/opentelemetry/v1/metrics
+    compression: gzip
+    tls:
+      insecure: true
+  # VictoriaTraces ingests OTLP traces over HTTP
+  otlphttp/victoriatraces:
+    traces_endpoint: http://victoria-traces:10428/insert/opentelemetry/v1/traces
+    compression: gzip
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/victoria]
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/victoriatraces]

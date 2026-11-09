@@ -1,0 +1,66 @@
+# Config used by docker-compose (mounted via ./config). Differs from udsf_config.yaml only in
+# container-specific values: cert paths, Redis host, OTLP collector, release mode, stdout logging.
+server:
+  https_port: ":9443"
+  mode: "release"
+  read_timeout: 10
+  write_timeout: 30
+  idle_timeout: 120
+  shutdown_timeout: 5   # seconds to drain in-flight requests (and flush traces) on shutdown
+  max_header_bytes: 
+  cert_pem_location: /certs/server.pem
+  cert_key_location: /certs/server.key
+
+app:
+  name: "udsf-go"
+
+redis:
+  host: redis_bp
+  port: 6379
+  password: "" 
+  database: 1
+  dial_timeout: 10
+  read_timeout: 30
+  write_timeout: 30
+  pool_size: 10
+  min_idle_conns: 10
+  max_idle_conns: 50
+  conn_max_idletime: 5
+  conn_max_lifetime: 30
+  enable_opentelemetry: true
+  tls:
+    enabled: false                  # keep false unless Redis is configured for TLS
+    ca_cert_location: ""            # PEM CA bundle to verify Redis; empty = system roots
+    client_cert_location: ""        # mTLS client cert (set together with client_key_location)
+    client_key_location: ""
+    server_name: ""                 # cert verification name; empty = redis.host
+    insecure_skip_verify: false     # dev only: skip server cert verification
+
+open_telemetry:
+  enabled: true
+  service_name: "udsf"
+  service_version: "0.0.1"
+  jaeger_endpoint: "http://localhost:14268/api/traces"
+  otlp_endpoint: "otel-collector:4317"
+  otlp_headers: ""
+  otlp_compression: "gzip"
+  otlp_timeout: 10
+  attributes:                       # extra resource attributes added to every span (keys are lower-cased)
+    network-function: "udsf"
+  sampler:
+    type: "always_on"               # always_on | always_off | traceidratio | parentbased_always_on | parentbased_always_off | parentbased_traceidratio
+    ratio: 1.0                      # 0.0-1.0, used by the *traceidratio types
+  tls:
+    enabled: false                  # false = plaintext gRPC; true = TLS to the collector
+    ca_cert_location: ""            # PEM CA bundle to verify the collector; empty = system roots
+    client_cert_location: ""        # mTLS client cert (set together with client_key_location)
+    client_key_location: ""
+    server_name: ""                 # cert verification name; empty = host of otlp_endpoint
+    insecure_skip_verify: false     # dev only: skip server cert verification
+
+log:
+  level: "info" #info, debug, warn, error
+  log_file: ""                      # stdout only (view with docker logs)
+
+
+

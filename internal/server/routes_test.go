@@ -25,7 +25,8 @@ type fakeDB struct{ m map[string]string }
 
 func newFakeDB() *fakeDB { return &fakeDB{m: map[string]string{}} }
 
-func (f *fakeDB) Health() map[string]string { return map[string]string{"redis_status": "up"} }
+func (f *fakeDB) Health() map[string]string      { return map[string]string{"redis_status": "up"} }
+func (f *fakeDB) Ping(ctx context.Context) error { return nil }
 func (f *fakeDB) Exists(_ context.Context, k string) (bool, error) {
 	_, ok := f.m[k]
 	return ok, nil
