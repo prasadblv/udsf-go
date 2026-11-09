@@ -17,6 +17,22 @@ func newLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: levelVar}))
 }
 
+// AddLogHandler sends every log record that passes the configured level to h as well as stderr
+// (used to ship logs to OpenTelemetry). It also routes the standard "log" package through the
+// same pipeline so startup and warning messages are exported too.
+func AddLogHandler(h slog.Handler) {
+	logger = slog.New(slog.NewMultiHandler(logger.Handler(), levelFilter{h: h}))
+	slog.SetDefault(logger)
+}
+
+// levelFilter applies the runtime log level to a handler that has no level of its own.
+type levelFilter struct{ h slog.Handler }
+
+func (f levelFilter) Enabled(_ context.Context, l slog.Level) bool    { return l >= levelVar.Level() }
+func (f levelFilter) Handle(ctx context.Context, r slog.Record) error { return f.h.Handle(ctx, r) }
+func (f levelFilter) WithAttrs(a []slog.Attr) slog.Handler            { return levelFilter{f.h.WithAttrs(a)} }
+func (f levelFilter) WithGroup(n string) slog.Handler                 { return levelFilter{f.h.WithGroup(n)} }
+
 func parseLevel(s string) slog.Level {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "debug":

@@ -13,6 +13,7 @@ import (
 	"udsf-go/internal/config"
 	"udsf-go/internal/observability"
 	"udsf-go/internal/server"
+	"udsf-go/internal/udsf/util"
 )
 
 func gracefulShutdown(apiServer *http.Server, timeout time.Duration, done chan bool) {
@@ -52,8 +53,10 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
+	observability.InitErrorHandler()
 	shutdownTracing := observability.InitTracing(cfg)
 	shutdownMetrics := observability.InitMetrics(cfg)
+	shutdownLogs := observability.InitLogs(cfg)
 
 	server, err := server.NewServer(cfg)
 	if err != nil {
@@ -82,11 +85,20 @@ func main() {
 	// Flush any buffered spans before exiting.
 	tctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-	if err := shutdownTracing(tctx); err != nil {
-		log.Printf("tracing shutdown error: %v", err)
+	if !cfg.OpenTelemetry.Enabled {
+		log.Println("Graceful shutdown complete.")
+		return
 	}
-	if err := shutdownMetrics(tctx); err != nil {
-		log.Printf("metrics shutdown error: %v", err)
+	for _, f := range []struct {
+		name  string
+		flush func(context.Context) error
+	}{{"tracing", shutdownTracing}, {"metrics", shutdownMetrics}, {"logs", shutdownLogs}} {
+		start := time.Now()
+		if err := f.flush(tctx); err != nil {
+			util.LogWarn("otel %s shutdown error after %s: %v", f.name, time.Since(start).Round(time.Millisecond), err)
+			continue
+		}
+		util.LogInfo("otel %s flushed (%s)", f.name, time.Since(start).Round(time.Millisecond))
 	}
 	log.Println("Graceful shutdown complete.")
 }

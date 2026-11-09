@@ -75,7 +75,11 @@ type UdsfConfig struct {
 		// Attributes are extra resource attributes attached to every span.
 		// Note: viper lower-cases map keys.
 		Attributes map[string]string `mapstructure:"attributes"`
-		Sampler    struct {
+		// Logs controls exporting application logs over OTLP (needs enabled: true).
+		Logs struct {
+			Enabled bool `mapstructure:"enabled"`
+		} `mapstructure:"logs"`
+		Sampler struct {
 			// always_on, always_off, traceidratio, parentbased_always_on,
 			// parentbased_always_off, parentbased_traceidratio
 			Type  string  `mapstructure:"type"`
@@ -207,6 +211,7 @@ func LoadFrom(path string) (*UdsfConfig, error) {
 	v.SetDefault("open_telemetry.service_version", "0.0.1")
 	v.SetDefault("open_telemetry.otlp_compression", "gzip")
 	v.SetDefault("open_telemetry.otlp_timeout", 10)
+	v.SetDefault("open_telemetry.logs.enabled", false)
 	v.SetDefault("open_telemetry.sampler.type", "always_on")
 	v.SetDefault("open_telemetry.sampler.ratio", 1.0)
 	v.SetDefault("log.level", "info")

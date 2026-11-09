@@ -2,6 +2,7 @@ package observability
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -19,6 +20,9 @@ import (
 
 // InitTracing configures the global tracer provider and returns a shutdown func.
 func InitTracing(cfg *config.UdsfConfig) func(context.Context) error {
+	warnRedisOTelWithoutOTel(cfg)
+	signalStatus(cfg, "tracing", isOtelEnabled(cfg),
+		fmt.Sprintf(" sampler=%s ratio=%v", cfg.OpenTelemetry.Sampler.Type, cfg.OpenTelemetry.Sampler.Ratio))
 	if isOtelEnabled(cfg) {
 		serviceName := ServiceName(cfg)
 		otelUrl := setOtelUrl(cfg)

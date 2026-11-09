@@ -26,6 +26,7 @@ const metricExportInterval = 15 * time.Second
 // pending metrics. When open_telemetry.enabled is false the global no-op provider
 // stays in place, so instruments created from it cost nothing. HTTP metrics come from the otelgin middleware.
 func InitMetrics(cfg *config.UdsfConfig) func(context.Context) error {
+	signalStatus(cfg, "metrics", isOtelEnabled(cfg), " export_interval="+metricExportInterval.String())
 	if !isOtelEnabled(cfg) {
 		return func(context.Context) error { return nil }
 	}

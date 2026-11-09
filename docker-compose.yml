@@ -51,6 +51,21 @@ services:
       - udsf_net
     # No healthcheck: the image has no wget/curl to probe with.
 
+  victoria-logs:
+    image: victoriametrics/victoria-logs:v1.28.0
+    restart: unless-stopped
+    command:
+      - "-storageDataPath=/victoria-logs-data"
+      - "-retentionPeriod=${VL_RETENTION:-7d}"
+      - "-httpListenAddr=:9428"
+    ports:
+      - "${VL_PORT:-9428}:9428" # UI (/select/vmui) and query API (/select/logsql/query)
+    volumes:
+      - vl_data:/victoria-logs-data
+    networks:
+      - udsf_net
+    # No healthcheck: the image has no wget/curl to probe with.
+
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.111.0
     restart: unless-stopped
@@ -61,6 +76,8 @@ services:
       victoria-metrics:
         condition: service_healthy
       victoria-traces:
+        condition: service_started
+      victoria-logs:
         condition: service_started
     networks:
       - udsf_net
@@ -92,6 +109,7 @@ services:
 volumes:
   vm_data:
   vt_data:
+  vl_data:
 
 networks:
   udsf_net:

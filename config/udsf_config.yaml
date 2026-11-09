@@ -45,6 +45,8 @@ open_telemetry:
   otlp_timeout: 10
   attributes:                       # extra resource attributes added to every span (keys are lower-cased)
     network-function: "udsf"
+  logs:
+    enabled: false                    # export application logs over OTLP (VictoriaLogs via the collector)
   sampler:
     type: "always_on"               # always_on | always_off | traceidratio | parentbased_always_on | parentbased_always_off | parentbased_traceidratio
     ratio: 1.0                      # 0.0-1.0, used by the *traceidratio types

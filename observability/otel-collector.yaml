@@ -23,8 +23,19 @@ exporters:
     tls:
       insecure: true
 
+  # VictoriaLogs ingests OTLP logs over HTTP
+  otlphttp/victorialogs:
+    logs_endpoint: http://victoria-logs:9428/insert/opentelemetry/v1/logs
+    compression: gzip
+    tls:
+      insecure: true
+
 service:
   pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/victorialogs]
     metrics:
       receivers: [otlp]
       processors: [batch]
