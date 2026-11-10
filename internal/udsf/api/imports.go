@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -116,14 +117,34 @@ func parseJSONParam(raw string, dst interface{}) error {
 	return json.Unmarshal([]byte(raw), dst)
 }
 
-// parseBlocksParam converts a comma-separated form value into a block list.
-func parseBlocksParam(raw string) []interface{} {
+// parseBlocksParam reads the "blocks" parts of a multipart/form-data request. Each part becomes a
+// util.BlockPart: the id is the part's Content-Id header (angle brackets stripped), falling back to
+// the form filename, and the content type is the part's Content-Type (empty if absent).
+// A part without an id is returned with an empty ID so the service can reject it.
+// Only file-style parts (those with a filename) are visible to Go's multipart form parser.
+func parseBlocksParam(r *http.Request) ([]interface{}, error) {
 	blocks := []interface{}{}
-	if raw == "" {
-		return blocks
+	if r.MultipartForm == nil {
+		return blocks, nil
 	}
-	for _, b := range strings.Split(raw, ",") {
-		blocks = append(blocks, b)
+	for _, fh := range r.MultipartForm.File["blocks"] {
+		f, err := fh.Open()
+		if err != nil {
+			return nil, err
+		}
+		data, err := io.ReadAll(f)
+		f.Close()
+		if err != nil {
+			return nil, err
+		}
+		id := strings.Trim(strings.TrimSpace(fh.Header.Get("Content-Id")), "<>")
+		if id == "" {
+			id = fh.Filename
+		}
+		blocks = append(blocks, util.BlockPart{
+			ID:      id,
+			Content: util.BlockContent{ContentType: fh.Header.Get("Content-Type"), Data: data},
+		})
 	}
-	return blocks
+	return blocks, nil
 }

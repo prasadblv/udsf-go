@@ -6,6 +6,10 @@
 api/api.go
 api/api_block_crud.go
 api/api_block_crud_service.go
+
+# Record CRUD: Redis-backed service; controller parses multipart block parts
+api/api_record_crud.go
+api/api_record_crud_service.go
 api/imports.go
 
 # EncodeJSONResponse dispatches BlockContent / BlockListMultipart bodies

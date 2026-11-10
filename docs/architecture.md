@@ -6,7 +6,7 @@
  NF clients ──HTTPS/HTTP2──▶ ┌───────────────────────────── udsf ─────────────────────────────┐
                              │ Gin engine                                                       │
                              │  otelgin → RouteLatency → Recovery → shutdown gate →             │
-                             │  Redis gate → CORS → pprof                                       │
+                             │  Redis gate → CORS → pprof (if server.enable_pprof)              │
                              │   ├─ /healthz /readyz /dbhealthz                                 │
                              │   └─ /nudsf-dr/*path ──▶ generated gorilla/mux router            │
                              │                           └─ controllers → services              │
@@ -24,19 +24,19 @@
 | `cmd/api` | Parses `-config`, loads configuration, initialises tracing and metrics, starts the TLS server and handles `SIGINT`/`SIGTERM`. |
 | `internal/config` | Defines `UdsfConfig`, applies defaults with Viper, validates `server.mode`, builds client `tls.Config` objects for Redis and OTLP. |
 | `internal/server` | Creates the `http.Server`, registers middleware and routes, implements health handlers and the 503 gates. |
-| `internal/database` | `Service` interface and Redis implementation (create, get, update, delete, scan, multi-get, ping, health). |
+| `internal/database` | `Service` interface and Redis implementation (create, get, update, delete, multi-delete, scan, multi-get, sets, ping, health). |
 | `internal/observability` | OTLP trace and metric providers, samplers, resource attributes, and the route latency middleware. |
 | `internal/udsf/api` | Controllers (generated) and services (hand-written business logic) per API group. |
 | `internal/udsf/model` | Generated data types from the OpenAPI definition. |
 | `internal/udsf/route` | Generated gorilla/mux router assembled from the controllers. |
-| `internal/udsf/util` | Key construction, block (de)serialisation, multipart writer, logging, response helpers. |
+| `internal/udsf/util` | Key construction (record, block, block index), block (de)serialisation, multipart writer, logging, response helpers. |
 
 ## Request flow
 
 1. The Gin engine receives the request. When OpenTelemetry is enabled, `otelgin` starts a span and `RouteLatency` times the request.
 2. `gin.Recovery` converts panics into 500 responses.
 3. `rejectReqWhenShuttingDown` returns `503` for everything except `/healthz` once shutdown has started.
-4. `rejectReqWhenRedisDown` returns `503` (with `Retry-After: 5`) for everything except `/healthz` while Redis does not answer `PING`. The probe result is cached for 1 second and only one goroutine probes at a time, so a request burst costs one `PING`.
+4. `rejectReqWhenRedisDown` returns `503` (with `Retry-After: 5`) for everything except `/healthz` while Redis does not answer `PING`. The probe result is cached for 1 second and only one goroutine probes at a time, so a request burst costs one `PING`. Requests that arrive while the very first probe is still running wait for it, so a burst at start-up is not rejected.
 5. CORS allows `http://localhost:5173` with credentials.
 6. Requests under `/nudsf-dr/*` are matched against the generated gorilla/mux router. The matched route template replaces Gin's wildcard path in the span name and the `http.route` metric label.
 7. The controller parses path, query, header and body parameters and calls the matching service method, which returns an `ImplResponse` (status code and body).
@@ -49,8 +49,12 @@ Blocks are stored as Redis string values.
 
 - **Key:** `udsf:{realmId}:{storageId}:{recordId}:{blockId}`
 - **Value:** `<content-type>\n<raw bytes>`. The first newline separates the media type from the payload; the payload is never interpreted. A missing `Content-Type` is stored as `application/octet-stream`.
-- **Listing:** a record's blocks are found with an incremental `SCAN` using the pattern `udsf:{realmId}:{storageId}:{recordId}:*` (never `KEYS`). Glob characters in identifiers are escaped. Values are then fetched with a multi-get and sorted by key.
 - **Expiry:** blocks are created without a TTL; updates preserve the existing TTL.
+
+Records are stored as JSON under `udsf:{realmId}:{storageId}:{recordId}` (the `meta` only).
+
+- **Block index:** each record has a Redis set `udsfidx:{realmId}:{storageId}:{recordId}` holding the ids of its blocks. Both the Block API and the Record API keep it up to date. Listing blocks (`GET .../blocks`) and reading a record read the index (`SMEMBERS`, then one `MGET` for the values) and sort by id; a stale index entry whose block is gone is skipped. Deleting a record removes the record, its blocks and the index with one `DEL`. These paths used to `SCAN` the keyspace with a pattern, which visits every key in the database and saturated Redis under load (block list: about 525 req/s and p95 4.5 s, now about 2000 req/s, the k6 script's limit, and p95 24 ms).
+- Blocks written before the index existed are not in it, so they are not listed by `GET .../blocks` or `GET /records/{id}` and are not removed by `DELETE /records/{id}` until they are updated through the Block API (which re-indexes them).
 
 Because identifiers are joined with `:`, identifiers should not contain `:`.
 
@@ -59,11 +63,13 @@ Because identifiers are joined with `:`, identifiers should not contain `:`.
 - TLS certificate and key are loaded at start-up; a failure stops the process with a hint to run `./generate-cert.sh`.
 - ALPN advertises `h2` and `http/1.1`; minimum TLS version is 1.2.
 - On `SIGINT`/`SIGTERM` the server stops accepting connections, drains in-flight requests for up to `server.shutdown_timeout` seconds, then flushes traces and metrics. A second signal forces exit.
-- `pprof` handlers are exposed under `/debug/pprof`. Restrict network access to the port in shared environments.
+- `pprof` handlers are served under `/debug/pprof` only when `server.enable_pprof` is `true` (default `false`); otherwise those paths return `404`. The start-up log states which. They sit behind the Redis and shutdown gates, so they also answer `503` while Redis is down. Restrict network access to the port in shared environments.
 
 ## Known limitations
 
-- Only the Block CRUD service is implemented; the other `Nudsf_DataRepository` services return `501 Not Implemented`.
+- Only Block CRUD and the single-record operations of Record CRUD (`PUT`, `GET`, `GET meta`, `DELETE`) are implemented. Record search, bulk delete and `PATCH` (record and meta), and the other `Nudsf_DataRepository` services, return `501 Not Implemented`. `PATCH` is blocked by the generated `PatchOperation` model being an empty struct.
 - The Gin catch-all route is `/nudsf-dr/*path`, so requests to `/nudsf-timer/...` do not reach the generated router until that route is added in `internal/server/routes.go`.
 - Conditional request headers (`If-Match`, `If-None-Match`, `If-Modified-Since`) and `supported-features` are accepted but not evaluated.
-- Block deletion does not yet update a parent Record, because Record storage is not implemented.
+- A record's TTL is applied only when it is created; modifying the record keeps the existing expiry.
+- Block listing relies on the block index. Blocks written before the index existed are not listed until they are updated through the Block API, which re-indexes them. A one-off backfill (one `SCAN` per record) would index existing data.
+- Record keys and block keys share the `:` separator, so identifiers should not contain `:`.

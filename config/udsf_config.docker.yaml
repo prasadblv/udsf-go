@@ -8,6 +8,7 @@ server:
   idle_timeout: 120
   shutdown_timeout: 5   # seconds to drain in-flight requests (and flush traces) on shutdown
   max_header_bytes: 
+  enable_pprof: true    # expose /debug/pprof profiling handlers; set false in shared or production environments
   cert_pem_location: /certs/server.pem
   cert_key_location: /certs/server.key
 
@@ -45,7 +46,7 @@ open_telemetry:
   otlp_headers: ""
   otlp_compression: "gzip"
   otlp_timeout: 10
-  attributes:                       # extra resource attributes added to every span (keys are lower-cased)
+  attributes:                       # extra resource attributes added to every span (keys are lower-cased; use dashes, not dots)
     network-function: "udsf"
   logs:
     enabled: true                    # export application logs over OTLP (VictoriaLogs via the collector)

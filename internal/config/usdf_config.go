@@ -40,6 +40,9 @@ type UdsfConfig struct {
 		IdleTimeout     int    `mapstructure:"idle_timeout"`     // seconds
 		ShutdownTimeout int    `mapstructure:"shutdown_timeout"` // seconds to drain in-flight requests on SIGINT/SIGTERM
 		MaxHeaderBytes  int    `mapstructure:"max_header_bytes"` // default 1 MiB
+		// EnablePprof exposes the Go profiling handlers under /debug/pprof. Off by default: they
+		// reveal internals and can be used to put load on the process, so enable only where needed.
+		EnablePprof     bool   `mapstructure:"enable_pprof"`
 		CertPemLocation string `mapstructure:"cert_pem_location"`
 		CertKeyLocation string `mapstructure:"cert_key_location"`
 	} `mapstructure:"server"`
@@ -178,6 +181,7 @@ func LoadFrom(path string) (*UdsfConfig, error) {
 	v.SetDefault("server.idle_timeout", 60)
 	v.SetDefault("server.shutdown_timeout", 5)
 	v.SetDefault("server.max_header_bytes", 1<<20) // 1 MiB
+	v.SetDefault("server.enable_pprof", false)
 	v.SetDefault("server.cert_pem_location", "certs/server.pem")
 	v.SetDefault("server.cert_key_location", "certs/server.key")
 	v.SetDefault("app.name", "UDSF")

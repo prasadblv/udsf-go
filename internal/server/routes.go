@@ -6,6 +6,7 @@ import (
 	"udsf-go/internal/observability"
 	"udsf-go/internal/udsf/api"
 	udsfroute "udsf-go/internal/udsf/route"
+	"udsf-go/internal/udsf/util"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/pprof"
@@ -33,8 +34,13 @@ func (s *Server) RegisterRoutes() http.Handler {
 		AllowCredentials: true,
 	}))
 
-	// Registers net/http/pprof handlers under /debug/pprof
-	pprof.Register(r)
+	// Registers net/http/pprof handlers under /debug/pprof when server.enable_pprof is true.
+	if s.cfg != nil && s.cfg.Server.EnablePprof {
+		pprof.Register(r)
+		util.LogInfo("pprof enabled: profiling handlers served under /debug/pprof (server.enable_pprof=true)")
+	} else {
+		util.LogInfo("pprof disabled (server.enable_pprof=false)")
+	}
 
 	//Liveness Handler
 	r.GET("/healthz", s.livenessHandler)
@@ -50,7 +56,7 @@ func (s *Server) RegisterRoutes() http.Handler {
 		api.NewMetaSchemaCRUDAPIController(api.NewMetaSchemaCRUDAPIService()),
 		api.NewNotificationSubscriptionCRUDAPIController(api.NewNotificationSubscriptionCRUDAPIService()),
 		api.NewNotificationSubscriptionsCRUDAPIController(api.NewNotificationSubscriptionsCRUDAPIService()),
-		api.NewRecordCRUDAPIController(api.NewRecordCRUDAPIService()),
+		api.NewRecordCRUDAPIController(api.NewRecordCRUDAPIService(s.db)),
 		api.NewTimerGetAPIController(api.NewTimerGetAPIService()),
 		api.NewTimerSearchAPIController(api.NewTimerSearchAPIService()),
 		api.NewTimerStartAPIController(api.NewTimerStartAPIService()),

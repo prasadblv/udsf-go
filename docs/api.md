@@ -72,13 +72,88 @@ $CURL $BASE
 $CURL -X DELETE $BASE/Block01
 ```
 
+## Record CRUD (partly implemented)
+
+Base path: `/nudsf-dr/v1/{realmId}/{storageId}/records/{recordId}`
+
+| Method | Path | Description | Success |
+|--------|------|-------------|---------|
+| `PUT` | `/records/{recordId}` | Create or modify a record (and add or replace blocks) | `201` created, `204` modified, `200` modified with `get-previous=true` |
+| `GET` | `/records/{recordId}` | Read a record | `200` `Record` (meta and block ids) |
+| `GET` | `/records/{recordId}/meta` | Read a record's meta | `200` `RecordMeta` |
+| `DELETE` | `/records/{recordId}` | Delete a record and all its blocks | `204`, or `200` with `get-previous=true` |
+
+Not implemented yet (they answer `501`): `GET /records` (search), `DELETE /records` (bulk delete), `PATCH /records/{recordId}`
+and `PATCH /records/{recordId}/meta`. The generated `PatchOperation` model is an empty struct, so JSON Patch operations
+cannot be read until the model is fixed.
+
+### Create or modify (`PUT`)
+
+The body is `multipart/form-data`:
+
+| Part | Required | Description |
+|------|----------|-------------|
+| `meta` | yes | JSON `RecordMeta`: `ttl` (date-time), `callbackReference` (URI), `tags` (`{"name": ["value", ...]}`) |
+| `blocks` | no | One file part per block. The block id is the part's `Content-Id` header (angle brackets are stripped), falling back to the form filename. The part's `Content-Type` is stored with the block |
+
+- A new record answers `201`. If it already exists the meta is replaced and the answer is `204`, or `200` with the previous record when `get-previous=true`.
+- `If-None-Match: *` on an existing record answers `412`.
+- A `ttl` in the past answers `400`. The TTL is applied when the record is created; later modifications keep the existing expiry.
+- Blocks sent with the request are added or replaced. Existing blocks that are not part of the request are left untouched.
+- An empty or duplicate block id answers `400` and nothing is written. If storing the blocks fails while creating a record, the record is rolled back.
+- Only parts with a filename reach the service (Go's multipart parser treats parts without one as plain fields), for example `curl -F 'blocks=@file;filename=Block01;type=application/json'`.
+
+### Read (`GET`)
+
+`GET /records/{recordId}` returns `{"meta": {...}, "blocks": ["Block01", ...]}`. `blocks` lists the ids of the record's blocks, sorted;
+fetch the content through the [Block API](#block-crud-implemented). `GET .../meta` returns only the meta.
+
+### Delete (`DELETE`)
+
+Removes the record, every block belonging to it, and its block index in one operation. With `get-previous=true` the deleted record's
+meta is returned with `200`.
+
+### Error responses
+
+| Status | Cause |
+|--------|-------|
+| `400` | Missing or malformed `meta`, invalid `get-previous`, `ttl` in the past, or invalid blocks (missing or duplicate id) |
+| `404` | Record does not exist (`GET`, `DELETE`) |
+| `412` | `If-None-Match: *` and the record already exists |
+| `500` | Redis failure or a corrupt stored value |
+| `503` | Redis unreachable or server shutting down (`Retry-After` header set) |
+
+### Examples
+
+```bash
+BASE=https://127.0.0.1:9443/nudsf-dr/v1/Realm01/Storage01/records/Record01
+CURL="curl --http2 -k"
+
+# Create a record with meta and one block (201)
+$CURL -X PUT \
+  -F 'meta={"callbackReference":"http://cb.example/one","tags":{"imsi":["001010000000001"]}};type=application/json' \
+  -F 'blocks=@block.json;filename=Block01;type=application/json' $BASE
+
+# Modify (204), or return the previous record (200)
+$CURL -X PUT -F 'meta={"callbackReference":"http://cb.example/two"}' $BASE
+$CURL -X PUT -F 'meta={}' "$BASE?get-previous=true"
+
+# Read the record, its meta, and a block
+$CURL $BASE
+$CURL $BASE/meta
+$CURL $BASE/blocks/Block01
+
+# Delete the record and its blocks
+$CURL -X DELETE $BASE
+```
+
 ## Other Nudsf_DataRepository endpoints (not yet implemented)
 
 Routes are registered and respond `501 Not Implemented`.
 
 | Group | Method and path |
 |-------|-----------------|
-| Record CRUD | `GET`, `DELETE /records`; `GET`, `PUT`, `PATCH`, `DELETE /records/{recordId}`; `GET`, `PATCH /records/{recordId}/meta` |
+| Record CRUD (rest of the group) | `GET`, `DELETE /records`; `PATCH /records/{recordId}`; `PATCH /records/{recordId}/meta` |
 | Meta schema | `GET`, `PUT`, `DELETE /meta-schemas/{schemaId}` |
 | Notification subscriptions | `GET /subs-to-notify`; `GET`, `PUT`, `PATCH`, `DELETE /subs-to-notify/{subscriptionId}` |
 
@@ -104,4 +179,4 @@ requests to `/nudsf-timer/...` return `404` until the Gin route is added (see [a
 | `GET /healthz` | Liveness; always answers `200 "OK"` and is never gated |
 | `GET /readyz` | Readiness; `200 "OK"` |
 | `GET /dbhealthz` | Redis health and statistics (see [observability](observability.md)) |
-| `/debug/pprof/*` | Go profiling handlers |
+| `/debug/pprof/*` | Go profiling handlers; served only when `server.enable_pprof` is `true`, otherwise `404` |

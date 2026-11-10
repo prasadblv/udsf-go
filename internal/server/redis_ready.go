@@ -37,8 +37,14 @@ func (s *Server) redisReady() bool {
 	if now.UnixNano()-g.checkedAt.Load() < int64(redisProbeTTL) {
 		return g.ready.Load()
 	}
-	// One goroutine probes; the rest keep using the previous result.
+	// One goroutine probes; the rest keep using the previous result. Before the very first probe
+	// there is no previous result (ready starts false), so concurrent first requests wait for it
+	// instead of being rejected with a spurious 503 while the server is starting up.
 	if !g.mu.TryLock() {
+		if g.checkedAt.Load() == 0 {
+			g.mu.Lock()
+			g.mu.Unlock() //nolint:staticcheck // only waiting for the in-flight first probe
+		}
 		return g.ready.Load()
 	}
 	defer g.mu.Unlock()

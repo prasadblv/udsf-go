@@ -27,6 +27,7 @@ Time values are in seconds unless noted.
 | `idle_timeout` | `60` | Keep-alive idle timeout |
 | `shutdown_timeout` | `5` | Time allowed to drain in-flight requests and flush telemetry on shutdown |
 | `max_header_bytes` | `1048576` | Maximum request header size. Leave empty for the default |
+| `enable_pprof` | `false` | Serve the Go profiling handlers under `/debug/pprof`. When `false` those paths return `404`. They expose internals and can be used to load the process, so leave this off in shared or production environments. Both shipped config files set it to `true` for development and load testing |
 | `cert_pem_location` | `certs/server.pem` | TLS certificate (PEM) |
 | `cert_key_location` | `certs/server.key` | TLS private key (PEM) |
 
@@ -67,7 +68,7 @@ Time values are in seconds unless noted.
 | `otlp_headers` | empty | Reserved |
 | `otlp_compression` | `gzip` | Reserved |
 | `otlp_timeout` | `10` | Timeout for each export request |
-| `attributes` | none | Extra resource attributes added to every span and metric. Keys are lower-cased |
+| `attributes` | none | Extra resource attributes added to every span and metric. Keys are lower-cased and must be dash-separated (`network-function`), not dotted: a key containing `.` (such as `deployment.environment`) is read as a nested map and the config fails to load |
 | `logs.enabled` | `false` | Export application logs over OTLP, in addition to the console. Needs `enabled: true` |
 | `sampler.type` | `always_on` | `always_on`, `always_off`, `traceidratio`, `parentbased_always_on`, `parentbased_always_off`, `parentbased_traceidratio`. Unknown values fall back to `always_on` with a warning |
 | `sampler.ratio` | `1.0` | Sampling ratio from 0.0 to 1.0 for the `*traceidratio` types; out-of-range values are clamped |

@@ -408,7 +408,11 @@ func (c *RecordCRUDAPIController) CreateOrModifyRecord(w http.ResponseWriter, r 
 	} else {
 	}
 
-	blocksParam := parseBlocksParam(r.FormValue("blocks"))
+	blocksParam, err := parseBlocksParam(r)
+	if err != nil {
+		c.errorHandler(w, r, &ParsingError{Param: "blocks", Err: err}, nil)
+		return
+	}
 	result, err := c.service.CreateOrModifyRecord(r.Context(), realmIdParam, storageIdParam, recordIdParam, metaParam, ifNoneMatchParam, ifMatchParam, getPreviousParam, supportedFeaturesParam, blocksParam)
 	// If an error occurred, encode the error with the status code
 	if err != nil {
@@ -518,7 +522,11 @@ func (c *RecordCRUDAPIController) PatchRecord(w http.ResponseWriter, r *http.Req
 	} else {
 	}
 
-	blocksParam := parseBlocksParam(r.FormValue("blocks"))
+	blocksParam, err := parseBlocksParam(r)
+	if err != nil {
+		c.errorHandler(w, r, &ParsingError{Param: "blocks", Err: err}, nil)
+		return
+	}
 	result, err := c.service.PatchRecord(r.Context(), realmIdParam, storageIdParam, recordIdParam, patchParam, ifMatchParam, supportedFeaturesParam, blocksParam)
 	// If an error occurred, encode the error with the status code
 	if err != nil {

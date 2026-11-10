@@ -22,6 +22,29 @@ func CreateBlockKey(realmIdParam, storageIdParam, recordIdParam, blockIdParam st
 	return sb.String()
 }
 
+// create record key
+func CreateRecordKey(realmIdParam, storageIdParam, recordIdParam string) string {
+	var sb strings.Builder
+	sb.WriteString(UDSF)
+	sb.WriteString(SPERATOR)
+	sb.WriteString(realmIdParam)
+	sb.WriteString(SPERATOR)
+	sb.WriteString(storageIdParam)
+	sb.WriteString(SPERATOR)
+	sb.WriteString(recordIdParam)
+	return sb.String()
+}
+
+// BlockIndexPrefix prefixes the key of a record's block-id index. It differs from UDSF so the
+// index key is never matched by CreateRecordBlockPattern.
+const BlockIndexPrefix = "udsfidx"
+
+// CreateBlockIndexKey returns the key of the Redis set holding the ids of a record's blocks.
+// It lets a record's blocks be listed and deleted without scanning the keyspace.
+func CreateBlockIndexKey(realmIdParam, storageIdParam, recordIdParam string) string {
+	return BlockIndexPrefix + SPERATOR + realmIdParam + SPERATOR + storageIdParam + SPERATOR + recordIdParam
+}
+
 // CreateRecordBlockPattern returns a Redis glob pattern matching every block key of a record.
 // Glob metacharacters in the ids are escaped so they match literally.
 func CreateRecordBlockPattern(realmIdParam, storageIdParam, recordIdParam string) string {

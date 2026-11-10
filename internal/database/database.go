@@ -43,6 +43,15 @@ type Service interface {
 	Scan(ctx context.Context, pattern string) ([]string, error)
 	// GetMany returns the values for keys as a key->value map. Keys that no longer exist are omitted.
 	GetMany(ctx context.Context, keys []string) (map[string]string, error)
+	// DeleteMany removes keys in one round trip. Keys that do not exist are ignored.
+	DeleteMany(ctx context.Context, keys ...string) error
+
+	// SetAdd adds members to the set stored at key (creating it). Existing members are ignored.
+	SetAdd(ctx context.Context, key string, members ...string) error
+	// SetRemove removes members from the set stored at key. Missing members are ignored.
+	SetRemove(ctx context.Context, key string, members ...string) error
+	// SetMembers returns all members of the set stored at key (empty if it does not exist).
+	SetMembers(ctx context.Context, key string) ([]string, error)
 }
 
 type service struct {
@@ -186,6 +195,56 @@ func (s *service) GetMany(ctx context.Context, keys []string) (map[string]string
 		if str, ok := v.(string); ok {
 			out[keys[i]] = str
 		}
+	}
+	return out, nil
+}
+
+// DeleteMany removes keys with a single DEL; missing keys are ignored.
+func (s *service) DeleteMany(ctx context.Context, keys ...string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	if err := s.db.Del(ctx, keys...).Err(); err != nil {
+		return fmt.Errorf("redis delete many: %w", err)
+	}
+	return nil
+}
+
+// SetAdd adds members to a Redis set (SADD).
+func (s *service) SetAdd(ctx context.Context, key string, members ...string) error {
+	if len(members) == 0 {
+		return nil
+	}
+	args := make([]any, len(members))
+	for i, m := range members {
+		args[i] = m
+	}
+	if err := s.db.SAdd(ctx, key, args...).Err(); err != nil {
+		return fmt.Errorf("redis sadd %q: %w", key, err)
+	}
+	return nil
+}
+
+// SetRemove removes members from a Redis set (SREM).
+func (s *service) SetRemove(ctx context.Context, key string, members ...string) error {
+	if len(members) == 0 {
+		return nil
+	}
+	args := make([]any, len(members))
+	for i, m := range members {
+		args[i] = m
+	}
+	if err := s.db.SRem(ctx, key, args...).Err(); err != nil {
+		return fmt.Errorf("redis srem %q: %w", key, err)
+	}
+	return nil
+}
+
+// SetMembers returns the members of a Redis set (SMEMBERS).
+func (s *service) SetMembers(ctx context.Context, key string) ([]string, error) {
+	out, err := s.db.SMembers(ctx, key).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis smembers %q: %w", key, err)
 	}
 	return out, nil
 }

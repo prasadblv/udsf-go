@@ -13,7 +13,6 @@ import (
 	"errors"
 	"net/http"
 	"sort"
-	"strings"
 
 	"udsf-go/internal/database"
 	"udsf-go/internal/udsf/util"
@@ -38,40 +37,44 @@ func problem(status int, title string, err error) ImplResponse {
 	return Response(status, pd)
 }
 
-// GetBlockList - Record's Blocks access
+// GetBlockList - Record's Blocks access.
+// The ids come from the record's block index (one SMEMBERS) and the values from one MGET. Scanning the
+// keyspace instead visited every key in the database on each request, which saturated Redis under load.
 func (s *BlockCRUDAPIService) GetBlockList(ctx context.Context, realmId string, storageId string, recordId string, supportedFeatures string) (ImplResponse, error) {
-	pattern := util.CreateRecordBlockPattern(realmId, storageId, recordId)
-	util.LogDebug("GetBlockList pattern=%s", pattern)
+	indexKey := util.CreateBlockIndexKey(realmId, storageId, recordId)
+	util.LogDebug("GetBlockList index=%s", indexKey)
 
-	keys, err := s.db.Scan(ctx, pattern)
+	ids, err := s.db.SetMembers(ctx, indexKey)
 	if err != nil {
-		util.LogError("scan blocks failed pattern=%s: %v", pattern, err)
+		util.LogError("read block index failed index=%s: %v", indexKey, err)
 		return problem(http.StatusInternalServerError, "Failed to list blocks", err), nil
 	}
-	sort.Strings(keys)
+	sort.Strings(ids)
 
+	keys := make([]string, len(ids))
+	for i, id := range ids {
+		keys[i] = util.CreateBlockKey(realmId, storageId, recordId, id)
+	}
 	vals, err := s.db.GetMany(ctx, keys)
 	if err != nil {
-		util.LogError("read blocks failed pattern=%s: %v", pattern, err)
+		util.LogError("read blocks failed index=%s: %v", indexKey, err)
 		return problem(http.StatusInternalServerError, "Failed to read blocks", err), nil
 	}
 
-	// Block ids are the key suffix after the record prefix.
-	prefix := util.CreateBlockKey(realmId, storageId, recordId, "")
-	list := &util.BlockListMultipart{Parts: make([]util.BlockPart, 0, len(keys))}
-	for _, key := range keys {
+	list := &util.BlockListMultipart{Parts: make([]util.BlockPart, 0, len(ids))}
+	for i, key := range keys {
 		stored, ok := vals[key]
 		if !ok {
-			continue // deleted between SCAN and MGET
+			continue // stale index entry: the block was deleted
 		}
 		content, err := util.UnmarshalBlockContent(stored)
 		if err != nil {
 			util.LogError("corrupt block key=%s: %v", key, err)
 			return problem(http.StatusInternalServerError, "Corrupt block", err), nil
 		}
-		list.Parts = append(list.Parts, util.BlockPart{ID: strings.TrimPrefix(key, prefix), Content: content})
+		list.Parts = append(list.Parts, util.BlockPart{ID: ids[i], Content: content})
 	}
-	util.LogInfo("listed %d blocks pattern=%s", len(list.Parts), pattern)
+	util.LogInfo("listed %d blocks index=%s", len(list.Parts), indexKey)
 	return Response(http.StatusOK, list), nil
 }
 
@@ -111,11 +114,17 @@ func (s *BlockCRUDAPIService) CreateOrModifyBlock(ctx context.Context, realmId s
 	}
 	data := body.Marshal()
 
+	indexKey := util.CreateBlockIndexKey(realmId, storageId, recordId)
+
 	previous, err := s.db.Get(ctx, key)
 	switch {
 	case errors.Is(err, database.ErrKeyNotFound):
 		err = s.db.Create(ctx, key, data, 0)
 		if err == nil {
+			if err := s.db.SetAdd(ctx, indexKey, blockId); err != nil {
+				util.LogError("index block failed key=%s: %v", key, err)
+				return problem(http.StatusInternalServerError, "Failed to index block", err), nil
+			}
 			util.LogInfo("block created key=%s type=%s bytes=%d", key, body.ContentType, len(body.Data))
 			return Response(http.StatusCreated, nil), nil
 		}
@@ -138,6 +147,11 @@ func (s *BlockCRUDAPIService) CreateOrModifyBlock(ctx context.Context, realmId s
 		}
 		util.LogError("update block failed key=%s: %v", key, err)
 		return problem(http.StatusInternalServerError, "Failed to update block", err), nil
+	}
+	// Idempotent; also indexes blocks written before the index existed.
+	if err := s.db.SetAdd(ctx, indexKey, blockId); err != nil {
+		util.LogError("index block failed key=%s: %v", key, err)
+		return problem(http.StatusInternalServerError, "Failed to index block", err), nil
 	}
 	util.LogInfo("block updated key=%s type=%s bytes=%d", key, body.ContentType, len(body.Data))
 
@@ -162,6 +176,10 @@ func (s *BlockCRUDAPIService) DeleteBlock(ctx context.Context, realmId string, s
 	if err != nil {
 		util.LogError("delete block failed key=%s: %v", key, err)
 		return problem(http.StatusInternalServerError, "Failed to delete block", err), nil
+	}
+	if err := s.db.SetRemove(ctx, util.CreateBlockIndexKey(realmId, storageId, recordId), blockId); err != nil {
+		// The block is gone; a stale id in the index is harmless and is dropped on record delete.
+		util.LogWarn("unindex block failed key=%s: %v", key, err)
 	}
 	util.LogInfo("block deleted key=%s", key)
 	return Response(http.StatusNoContent, nil), nil

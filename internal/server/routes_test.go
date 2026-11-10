@@ -21,7 +21,10 @@ import (
 )
 
 // fakeDB is an in-memory database.Service.
-type fakeDB struct{ m map[string]string }
+type fakeDB struct {
+	m    map[string]string
+	sets map[string]map[string]struct{}
+}
 
 func newFakeDB() *fakeDB { return &fakeDB{m: map[string]string{}} }
 
@@ -75,6 +78,42 @@ func (f *fakeDB) GetMany(_ context.Context, keys []string) (map[string]string, e
 		if v, ok := f.m[k]; ok {
 			out[k] = v
 		}
+	}
+	return out, nil
+}
+
+func (f *fakeDB) DeleteMany(_ context.Context, keys ...string) error {
+	for _, k := range keys {
+		delete(f.m, k)
+		delete(f.sets, k)
+	}
+	return nil
+}
+func (f *fakeDB) SetAdd(_ context.Context, key string, members ...string) error {
+	if f.sets == nil {
+		f.sets = map[string]map[string]struct{}{}
+	}
+	if f.sets[key] == nil {
+		f.sets[key] = map[string]struct{}{}
+	}
+	for _, m := range members {
+		f.sets[key][m] = struct{}{}
+	}
+	return nil
+}
+func (f *fakeDB) SetRemove(_ context.Context, key string, members ...string) error {
+	for _, m := range members {
+		delete(f.sets[key], m)
+	}
+	if len(f.sets[key]) == 0 {
+		delete(f.sets, key)
+	}
+	return nil
+}
+func (f *fakeDB) SetMembers(_ context.Context, key string) ([]string, error) {
+	var out []string
+	for m := range f.sets[key] {
+		out = append(out, m)
 	}
 	return out, nil
 }
@@ -215,5 +254,35 @@ func TestRejectsWith503WhenShuttingDown(t *testing.T) {
 	}
 	if got := get("/healthz"); got != http.StatusOK {
 		t.Errorf("healthz during shutdown: got %d, want 200", got)
+	}
+}
+
+func TestPprofFeatureFlag(t *testing.T) {
+	newHandler := func(cfg *config.UdsfConfig) http.Handler {
+		gin.SetMode(gin.TestMode)
+		return (&Server{cfg: cfg, db: newFakeDB()}).RegisterRoutes()
+	}
+	enabled := &config.UdsfConfig{}
+	enabled.Server.EnablePprof = true
+
+	paths := []string{"/debug/pprof/", "/debug/pprof/cmdline", "/debug/pprof/heap"}
+	for name, tc := range map[string]struct {
+		cfg  *config.UdsfConfig
+		want int
+	}{
+		"enabled":   {enabled, http.StatusOK},
+		"disabled":  {&config.UdsfConfig{}, http.StatusNotFound},
+		"no config": {nil, http.StatusNotFound},
+	} {
+		h := newHandler(tc.cfg)
+		for _, p := range paths {
+			if got := serve(h, "GET", p, "", nil).Code; got != tc.want {
+				t.Errorf("%s: GET %s = %d, want %d", name, p, got, tc.want)
+			}
+		}
+		// other routes are unaffected by the flag
+		if got := serve(h, "GET", "/healthz", "", nil).Code; got != http.StatusOK {
+			t.Errorf("%s: /healthz = %d", name, got)
+		}
 	}
 }

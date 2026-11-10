@@ -9,19 +9,22 @@ Background on the network function: <https://5gctextbook.com/en/nf/udsf/>
 
 - HTTPS server (TLS 1.2+) with HTTP/2 and HTTP/1.1, built on Gin and a generated OpenAPI router.
 - **Block CRUD** fully implemented: create/replace, read, list (`multipart/parallel`) and delete of opaque blocks.
+- **Record CRUD** implemented for create/modify (with blocks), read, read meta and delete; search, bulk delete and PATCH are not yet implemented.
 - Redis storage with configurable pool, timeouts and optional TLS / mTLS.
 - Health endpoints (`/healthz`, `/readyz`, `/dbhealthz`) and automatic `503` while Redis is down or the server is shutting down.
 - Graceful shutdown that drains in-flight requests and flushes telemetry.
 - OpenTelemetry traces, metrics and logs (OTLP/gRPC), including a per-route latency histogram.
 - YAML configuration, Docker image, and a Docker Compose stack with Redis, OpenTelemetry Collector, VictoriaMetrics, VictoriaTraces and VictoriaLogs.
-- Shell functional test and k6 load tests.
+- Unit tests, shell functional tests (blocks and records), verbose curl/HTTP2 demo scripts, and k6 load tests (blocks and records).
+- Optional `/debug/pprof` profiling handlers, controlled by `server.enable_pprof` (off by default).
 
 ## API implementation status
 
 | API group | Base path | Status |
 |-----------|-----------|--------|
 | Block CRUD | `/nudsf-dr/v1/{realmId}/{storageId}/records/{recordId}/blocks[/{blockId}]` | Implemented |
-| Record CRUD / search | `/nudsf-dr/v1/{realmId}/{storageId}/records[/{recordId}]` | Routes registered, not yet implemented |
+| Record CRUD | `/nudsf-dr/v1/{realmId}/{storageId}/records/{recordId}[/meta]` | `PUT`, `GET`, `DELETE`, `GET meta` implemented; `PATCH` not yet |
+| Record search / bulk delete | `/nudsf-dr/v1/{realmId}/{storageId}/records` | Routes registered, not yet implemented |
 | Meta schema CRUD | `/nudsf-dr/v1/{realmId}/{storageId}/meta-schemas/{schemaId}` | Routes registered, not yet implemented |
 | Notification subscriptions | `/nudsf-dr/v1/{realmId}/{storageId}/subs-to-notify[/{subscriptionId}]` | Routes registered, not yet implemented |
 | Timers | `/nudsf-timer/v1/{realmId}/{storageId}/timers[/{timerId}]` | Not yet implemented, and not yet routed by the server |
@@ -61,6 +64,15 @@ curl --http2 -k -X PUT -H 'Content-Type: application/json' \
   https://127.0.0.1:9443/nudsf-dr/v1/Realm01/Storage01/records/Record01/blocks/Block01
 
 curl --http2 -k https://127.0.0.1:9443/nudsf-dr/v1/Realm01/Storage01/records/Record01/blocks/Block01
+```
+
+To see complete requests and responses (TLS handshake, HTTP/2 headers, status codes), run the demo scripts, which call
+curl with `--http2 -v` and walk through every implemented operation:
+
+```bash
+./bash-test/demo-block-crud.sh                  # Block CRUD
+./bash-test/demo-record-crud.sh                 # Record CRUD, including blocks sent with a record
+TRACE=1 ./bash-test/demo-record-crud.sh         # also dump request and response bodies
 ```
 
 ### Run with Docker Compose
@@ -128,7 +140,8 @@ internal/server/         HTTP server, middleware, health routes
 internal/udsf/           OpenAPI-generated API, models, router, and utilities
 openapi/                 OpenAPI definition
 spec/                    3GPP TS 29.598 specification
-functional-tests/        curl-based functional test
+functional-tests/        curl-based functional tests (PASS/FAIL)
+bash-test/               verbose curl/HTTP2 demo scripts for block and record CRUD
 k6/                      Load test scripts
 observability/           OpenTelemetry Collector configuration
 ```

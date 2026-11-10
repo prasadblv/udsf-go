@@ -18,7 +18,10 @@ import (
 )
 
 // fakeDB is an in-memory database.Service.
-type fakeDB struct{ m map[string]string }
+type fakeDB struct {
+	m    map[string]string
+	sets map[string]map[string]struct{}
+}
 
 func (f *fakeDB) Health() map[string]string      { return nil }
 func (f *fakeDB) Ping(ctx context.Context) error { return nil }
@@ -70,6 +73,42 @@ func (f *fakeDB) GetMany(_ context.Context, keys []string) (map[string]string, e
 		if v, ok := f.m[k]; ok {
 			out[k] = v
 		}
+	}
+	return out, nil
+}
+
+func (f *fakeDB) DeleteMany(_ context.Context, keys ...string) error {
+	for _, k := range keys {
+		delete(f.m, k)
+		delete(f.sets, k)
+	}
+	return nil
+}
+func (f *fakeDB) SetAdd(_ context.Context, key string, members ...string) error {
+	if f.sets == nil {
+		f.sets = map[string]map[string]struct{}{}
+	}
+	if f.sets[key] == nil {
+		f.sets[key] = map[string]struct{}{}
+	}
+	for _, m := range members {
+		f.sets[key][m] = struct{}{}
+	}
+	return nil
+}
+func (f *fakeDB) SetRemove(_ context.Context, key string, members ...string) error {
+	for _, m := range members {
+		delete(f.sets[key], m)
+	}
+	if len(f.sets[key]) == 0 {
+		delete(f.sets, key)
+	}
+	return nil
+}
+func (f *fakeDB) SetMembers(_ context.Context, key string) ([]string, error) {
+	var out []string
+	for m := range f.sets[key] {
+		out = append(out, m)
 	}
 	return out, nil
 }

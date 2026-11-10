@@ -5,7 +5,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"udsf-go/internal/database"
 )
@@ -40,5 +42,46 @@ func TestRejectsWith503WhenRedisDown(t *testing.T) {
 	s.redisGate.checkedAt.Store(0)
 	if got := get("/readyz"); got != http.StatusOK {
 		t.Fatalf("/readyz after recovery = %d, want 200", got)
+	}
+}
+
+// slowPingDB blocks the first Ping until released, counting calls.
+type slowPingDB struct {
+	database.Service
+	release chan struct{}
+	calls   atomic.Int32
+}
+
+func (p *slowPingDB) Ping(context.Context) error {
+	p.calls.Add(1)
+	<-p.release
+	return nil
+}
+
+// Requests that arrive while the very first probe is in flight must wait for it, not get a
+// 503 from the initial "not ready" state (this made load tests fail during startup).
+func TestConcurrentFirstRequestsWaitForFirstProbe(t *testing.T) {
+	db := &slowPingDB{release: make(chan struct{})}
+	s := &Server{db: db}
+
+	const n = 50
+	results := make(chan bool, n)
+	for i := 0; i < n; i++ {
+		go func() { results <- s.redisReady() }()
+	}
+	// let every goroutine reach the gate while the probe is blocked
+	time.Sleep(100 * time.Millisecond)
+	if len(results) != 0 {
+		t.Fatalf("%d requests returned before the first probe finished", len(results))
+	}
+	close(db.release)
+
+	for i := 0; i < n; i++ {
+		if ok := <-results; !ok {
+			t.Fatal("a request saw not-ready although Redis is healthy")
+		}
+	}
+	if c := db.calls.Load(); c != 1 {
+		t.Errorf("Ping called %d times, want 1 (single probe)", c)
 	}
 }
