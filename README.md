@@ -9,7 +9,7 @@ Background on the network function: <https://5gctextbook.com/en/nf/udsf/>
 
 - HTTPS server (TLS 1.2+) with HTTP/2 and HTTP/1.1, built on Gin and a generated OpenAPI router.
 - **Block CRUD** fully implemented: create/replace, read, list (`multipart/parallel`) and delete of opaque blocks.
-- **Record CRUD** implemented for create/modify (with blocks), read, read meta and delete; search, bulk delete and PATCH are not yet implemented.
+- **Record CRUD** implemented for create/modify (with blocks), read, read meta and delete; search, bulk delete and PATCH (record and meta) are not yet implemented.
 - Redis storage with configurable pool, timeouts and optional TLS / mTLS.
 - Health endpoints (`/healthz`, `/readyz`, `/dbhealthz`) and automatic `503` while Redis is down or the server is shutting down.
 - Graceful shutdown that drains in-flight requests and flushes telemetry.
@@ -23,7 +23,7 @@ Background on the network function: <https://5gctextbook.com/en/nf/udsf/>
 | API group | Base path | Status |
 |-----------|-----------|--------|
 | Block CRUD | `/nudsf-dr/v1/{realmId}/{storageId}/records/{recordId}/blocks[/{blockId}]` | Implemented |
-| Record CRUD | `/nudsf-dr/v1/{realmId}/{storageId}/records/{recordId}[/meta]` | `PUT`, `GET`, `DELETE`, `GET meta` implemented; `PATCH` not yet |
+| Record CRUD | `/nudsf-dr/v1/{realmId}/{storageId}/records/{recordId}[/meta]` | `PUT`, `GET`, `DELETE`, `GET meta` implemented; `PATCH` (record and meta) not yet |
 | Record search / bulk delete | `/nudsf-dr/v1/{realmId}/{storageId}/records` | Routes registered, not yet implemented |
 | Meta schema CRUD | `/nudsf-dr/v1/{realmId}/{storageId}/meta-schemas/{schemaId}` | Routes registered, not yet implemented |
 | Notification subscriptions | `/nudsf-dr/v1/{realmId}/{storageId}/subs-to-notify[/{subscriptionId}]` | Routes registered, not yet implemented |
